@@ -173,7 +173,9 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
     hour12: true,
   });
 
-  await interaction.deferReply();
+  const PROMOTION_CHANNEL_ID = "1488470650707378307";
+
+  await interaction.deferReply({ ephemeral: true });
 
   // Try to assign the role to the promoted user
   if (guild) {
@@ -225,11 +227,23 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
     );
   }
 
-  await interaction.editReply({
-    content: `${targetUser} (@${targetUser.username})`,
-    embeds: [embed],
-    components,
-  });
+  try {
+    const channel = await interaction.client.channels.fetch(PROMOTION_CHANNEL_ID);
+    if (!channel || !channel.isTextBased()) {
+      await interaction.editReply({ content: "Promotion channel not found or is not a text channel." });
+      return;
+    }
+    await channel.send({
+      content: `${targetUser} (@${targetUser.username})`,
+      embeds: [embed],
+      components,
+    });
+    await interaction.editReply({ content: `Promotion posted in <#${PROMOTION_CHANNEL_ID}>.` });
+  } catch (err) {
+    logger.error({ err }, "Failed to send promotion embed");
+    await interaction.editReply({ content: "Failed to post the promotion. Make sure the bot has access to the promotion channel." });
+    return;
+  }
 
   logger.info(
     {
