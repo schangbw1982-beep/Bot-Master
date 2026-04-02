@@ -5,6 +5,10 @@ import {
   Routes,
   SlashCommandBuilder,
   ChatInputCommandInteraction,
+  EmbedBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ActionRowBuilder,
 } from "discord.js";
 import { logger } from "./lib/logger";
 
@@ -19,6 +23,23 @@ if (!token) {
 if (!applicationId) {
   throw new Error("DISCORD_APPLICATION_ID environment variable is required.");
 }
+
+function generateCaseId(): string {
+  return Math.random().toString(36).substring(2, 7).toUpperCase();
+}
+
+function hasAllowedRole(interaction: ChatInputCommandInteraction): boolean {
+  const member = interaction.member;
+  return !!(
+    member &&
+    "roles" in member &&
+    (Array.isArray(member.roles)
+      ? member.roles.includes(ALLOWED_ROLE_ID)
+      : member.roles.cache.has(ALLOWED_ROLE_ID))
+  );
+}
+
+// ─── /dm command ─────────────────────────────────────────────────────────────
 
 const dmCommand = new SlashCommandBuilder()
   .setName("dm")
@@ -42,30 +63,8 @@ const dmCommand = new SlashCommandBuilder()
       .setRequired(false),
   );
 
-async function registerCommands() {
-  const rest = new REST({ version: "10" }).setToken(token!);
-  try {
-    logger.info("Registering Discord slash commands globally...");
-    await rest.put(Routes.applicationCommands(applicationId!), {
-      body: [dmCommand.toJSON()],
-    });
-    logger.info("Discord slash commands registered successfully.");
-  } catch (err) {
-    logger.error({ err }, "Failed to register Discord slash commands");
-    throw err;
-  }
-}
-
 async function handleDm(interaction: ChatInputCommandInteraction) {
-  const member = interaction.member;
-  const hasRole =
-    member &&
-    "roles" in member &&
-    (Array.isArray(member.roles)
-      ? member.roles.includes(ALLOWED_ROLE_ID)
-      : member.roles.cache.has(ALLOWED_ROLE_ID));
-
-  if (!hasRole) {
+  if (!hasAllowedRole(interaction)) {
     await interaction.reply({
       content: "You do not have permission to use this command.",
       ephemeral: true,
@@ -116,11 +115,153 @@ async function handleDm(interaction: ChatInputCommandInteraction) {
   }
 }
 
+// ─── /promote command ─────────────────────────────────────────────────────────
+
+const promoteCommand = new SlashCommandBuilder()
+  .setName("promote")
+  .setDescription("Issue a staff promotion")
+  .addUserOption((opt) =>
+    opt
+      .setName("user")
+      .setDescription("The user to promote")
+      .setRequired(true),
+  )
+  .addRoleOption((opt) =>
+    opt
+      .setName("role")
+      .setDescription("The role to promote them to")
+      .setRequired(true),
+  )
+  .addStringOption((opt) =>
+    opt
+      .setName("reason")
+      .setDescription("Reason for the promotion")
+      .setRequired(false),
+  )
+  .addStringOption((opt) =>
+    opt
+      .setName("invite_url")
+      .setDescription("Invite link for the button (optional)")
+      .setRequired(false),
+  );
+
+async function handlePromote(interaction: ChatInputCommandInteraction) {
+  if (!hasAllowedRole(interaction)) {
+    await interaction.reply({
+      content: "You do not have permission to use this command.",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const targetUser = interaction.options.getUser("user", true);
+  const role = interaction.options.getRole("role", true);
+  const reason = interaction.options.getString("reason") ?? "No reason provided.";
+  const inviteUrl = interaction.options.getString("invite_url") ?? null;
+  const issuer = interaction.user;
+  const guild = interaction.guild;
+  const caseId = generateCaseId();
+  const now = new Date();
+  const timestamp = now.toLocaleDateString("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  }) + " " + now.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  await interaction.deferReply();
+
+  // Try to assign the role to the promoted user
+  if (guild) {
+    try {
+      const member = await guild.members.fetch(targetUser.id);
+      await member.roles.add(role.id, `Promoted by ${issuer.tag} — ${reason}`);
+    } catch (err) {
+      logger.warn({ err, userId: targetUser.id, roleId: role.id }, "Could not assign role");
+    }
+  }
+
+  const guildIconUrl = guild?.iconURL() ?? null;
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setAuthor({
+      name: `Promotion Issued by ${issuer.displayName ?? issuer.username}`,
+      iconURL: issuer.displayAvatarURL(),
+    })
+    .setTitle("Staff Promotion")
+    .setThumbnail(guildIconUrl)
+    .addFields(
+      {
+        name: "Promoted User",
+        value: `${targetUser} (@${targetUser.username})`,
+      },
+      {
+        name: "Promoted To",
+        value: `<@&${role.id}>`,
+      },
+      {
+        name: "Reason",
+        value: reason,
+      },
+    )
+    .setFooter({
+      text: `Case ID: ${caseId} | ${timestamp}`,
+      iconURL: issuer.displayAvatarURL(),
+    });
+
+  const components: ActionRowBuilder<ButtonBuilder>[] = [];
+  if (inviteUrl) {
+    const button = new ButtonBuilder()
+      .setLabel(`Join the Server`)
+      .setStyle(ButtonStyle.Link)
+      .setURL(inviteUrl);
+    components.push(
+      new ActionRowBuilder<ButtonBuilder>().addComponents(button),
+    );
+  }
+
+  await interaction.editReply({
+    content: `${targetUser} (@${targetUser.username})`,
+    embeds: [embed],
+    components,
+  });
+
+  logger.info(
+    {
+      promotedUserId: targetUser.id,
+      roleId: role.id,
+      caseId,
+      invoker: issuer.id,
+    },
+    "Promotion issued",
+  );
+}
+
+// ─── Registration & client ────────────────────────────────────────────────────
+
+async function registerCommands() {
+  const rest = new REST({ version: "10" }).setToken(token!);
+  try {
+    logger.info("Registering Discord slash commands globally...");
+    await rest.put(Routes.applicationCommands(applicationId!), {
+      body: [dmCommand.toJSON(), promoteCommand.toJSON()],
+    });
+    logger.info("Discord slash commands registered successfully.");
+  } catch (err) {
+    logger.error({ err }, "Failed to register Discord slash commands");
+    throw err;
+  }
+}
+
 export async function startBot() {
   await registerCommands();
 
   const client = new Client({
-    intents: [GatewayIntentBits.Guilds],
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
   });
 
   client.once("ready", (c) => {
@@ -132,6 +273,8 @@ export async function startBot() {
 
     if (interaction.commandName === "dm") {
       await handleDm(interaction);
+    } else if (interaction.commandName === "promote") {
+      await handlePromote(interaction);
     }
   });
 
