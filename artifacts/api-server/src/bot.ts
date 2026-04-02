@@ -15,7 +15,8 @@ import { logger } from "./lib/logger";
 const token = process.env["DISCORD_BOT_TOKEN"];
 const applicationId = process.env["DISCORD_APPLICATION_ID"];
 
-const ALLOWED_ROLE_ID = "1488086630731616337";
+const DM_ALLOWED_ROLE_ID = "1488086630731616337";
+const PROMOTE_ALLOWED_ROLE_ID = "1487807942077190291";
 
 if (!token) {
   throw new Error("DISCORD_BOT_TOKEN environment variable is required.");
@@ -28,14 +29,14 @@ function generateCaseId(): string {
   return Math.random().toString(36).substring(2, 7).toUpperCase();
 }
 
-function hasAllowedRole(interaction: ChatInputCommandInteraction): boolean {
+function hasAllowedRole(interaction: ChatInputCommandInteraction, roleId: string): boolean {
   const member = interaction.member;
   return !!(
     member &&
     "roles" in member &&
     (Array.isArray(member.roles)
-      ? member.roles.includes(ALLOWED_ROLE_ID)
-      : member.roles.cache.has(ALLOWED_ROLE_ID))
+      ? member.roles.includes(roleId)
+      : member.roles.cache.has(roleId))
   );
 }
 
@@ -64,7 +65,7 @@ const dmCommand = new SlashCommandBuilder()
   );
 
 async function handleDm(interaction: ChatInputCommandInteraction) {
-  if (!hasAllowedRole(interaction)) {
+  if (!hasAllowedRole(interaction, DM_ALLOWED_ROLE_ID)) {
     await interaction.reply({
       content: "You do not have permission to use this command.",
       ephemeral: true,
@@ -146,7 +147,7 @@ const promoteCommand = new SlashCommandBuilder()
   );
 
 async function handlePromote(interaction: ChatInputCommandInteraction) {
-  if (!hasAllowedRole(interaction)) {
+  if (!hasAllowedRole(interaction, PROMOTE_ALLOWED_ROLE_ID)) {
     await interaction.reply({
       content: "You do not have permission to use this command.",
       ephemeral: true,
