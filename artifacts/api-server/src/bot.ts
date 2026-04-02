@@ -17,6 +17,7 @@ const applicationId = process.env["DISCORD_APPLICATION_ID"];
 
 const DM_ALLOWED_ROLE_ID = "1488086630731616337";
 const PROMOTE_ALLOWED_ROLE_ID = "1487807942077190291";
+const NICKNAME_ALLOWED_ROLE_ID = "1489216408620630186";
 
 if (!token) {
   throw new Error("DISCORD_BOT_TOKEN environment variable is required.");
@@ -258,12 +259,100 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
 
 // ─── Registration & client ────────────────────────────────────────────────────
 
+// ─── /nickname command ────────────────────────────────────────────────────────
+
+const nicknameCommand = new SlashCommandBuilder()
+  .setName("nickname")
+  .setDescription("Change a staff member's server nickname")
+  .addUserOption((opt) =>
+    opt
+      .setName("user")
+      .setDescription("The staff member to nickname")
+      .setRequired(true),
+  )
+  .addStringOption((opt) =>
+    opt
+      .setName("nickname")
+      .setDescription("The new nickname (leave empty to clear)")
+      .setRequired(false),
+  );
+
+async function handleNickname(interaction: ChatInputCommandInteraction) {
+  if (!hasAllowedRole(interaction, NICKNAME_ALLOWED_ROLE_ID)) {
+    await interaction.reply({
+      content: "You do not have permission to use this command.",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const targetUser = interaction.options.getUser("user", true);
+  const newNickname = interaction.options.getString("nickname") ?? null;
+  const issuer = interaction.user;
+  const guild = interaction.guild;
+
+  await interaction.deferReply({ ephemeral: true });
+
+  if (!guild) {
+    await interaction.editReply({ content: "This command can only be used in a server." });
+    return;
+  }
+
+  let member;
+  try {
+    member = await guild.members.fetch(targetUser.id);
+  } catch {
+    await interaction.editReply({ content: `Could not find that user in this server.` });
+    return;
+  }
+
+  const oldNickname = member.nickname ?? member.user.username;
+
+  try {
+    await member.setNickname(newNickname, `Changed by ${issuer.tag}`);
+  } catch (err) {
+    logger.error({ err, targetUserId: targetUser.id }, "Failed to set nickname");
+    await interaction.editReply({
+      content: "Failed to change the nickname. Make sure the bot has **Manage Nicknames** permission and the target is not a server owner or higher role.",
+    });
+    return;
+  }
+
+  const displayNew = newNickname ?? member.user.username;
+
+  // DM the user
+  try {
+    const dmEmbed = new EmbedBuilder()
+      .setColor(0x5865f2)
+      .setTitle("Your Nickname Has Been Changed")
+      .addFields(
+        { name: "Previous Nickname", value: oldNickname },
+        { name: "New Nickname", value: displayNew },
+        { name: "Changed By", value: `${issuer} (@${issuer.username})` },
+      )
+      .setTimestamp();
+
+    await targetUser.send({ embeds: [dmEmbed] });
+  } catch (err) {
+    logger.warn({ err, targetUserId: targetUser.id }, "Could not DM user about nickname change");
+  }
+
+  await interaction.editReply({
+    content: `Nickname updated: **${oldNickname}** → **${displayNew}**. ${targetUser} has been notified via DM.`,
+  });
+
+  logger.info(
+    { targetUserId: targetUser.id, oldNickname, newNickname, invoker: issuer.id },
+    "Nickname changed",
+  );
+}
+
 async function registerCommands() {
   const rest = new REST({ version: "10" }).setToken(token!);
   try {
     logger.info("Registering Discord slash commands globally...");
     await rest.put(Routes.applicationCommands(applicationId!), {
-      body: [dmCommand.toJSON(), promoteCommand.toJSON()],
+      body: [dmCommand.toJSON(), promoteCommand.toJSON(), nicknameCommand.toJSON()],
     });
     logger.info("Discord slash commands registered successfully.");
   } catch (err) {
@@ -290,6 +379,8 @@ export async function startBot() {
       await handleDm(interaction);
     } else if (interaction.commandName === "promote") {
       await handlePromote(interaction);
+    } else if (interaction.commandName === "nickname") {
+      await handleNickname(interaction);
     }
   });
 
