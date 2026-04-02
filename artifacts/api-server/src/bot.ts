@@ -5,12 +5,13 @@ import {
   Routes,
   SlashCommandBuilder,
   ChatInputCommandInteraction,
-  ApplicationCommandOptionType,
 } from "discord.js";
 import { logger } from "./lib/logger";
 
 const token = process.env["DISCORD_BOT_TOKEN"];
 const applicationId = process.env["DISCORD_APPLICATION_ID"];
+
+const ALLOWED_ROLE_ID = "1488086630731616337";
 
 if (!token) {
   throw new Error("DISCORD_BOT_TOKEN environment variable is required.");
@@ -56,6 +57,22 @@ async function registerCommands() {
 }
 
 async function handleDm(interaction: ChatInputCommandInteraction) {
+  const member = interaction.member;
+  const hasRole =
+    member &&
+    "roles" in member &&
+    (Array.isArray(member.roles)
+      ? member.roles.includes(ALLOWED_ROLE_ID)
+      : member.roles.cache.has(ALLOWED_ROLE_ID));
+
+  if (!hasRole) {
+    await interaction.reply({
+      content: "You do not have permission to use this command.",
+      ephemeral: true,
+    });
+    return;
+  }
+
   const message = interaction.options.getString("message", true);
   const targetUser = interaction.options.getUser("user") ?? null;
   const targetUserId = interaction.options.getString("userid") ?? null;
