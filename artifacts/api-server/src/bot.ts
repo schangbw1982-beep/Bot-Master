@@ -235,11 +235,34 @@ async function handleNickname(interaction: ChatInputCommandInteraction) {
   logger.info({ targetUserId: targetUser.id, oldNickname, newNickname, invoker: issuer.id }, "Nickname changed");
 }
 
-// ─── /host training ───────────────────────────────────────────────────────────
+// ─── /host training & /mark ───────────────────────────────────────────────────
 
 const HOST_ALLOWED_ROLE_ID = "1489217034347741214";
-const TRAINING_CHANNEL_ID = "1489215317316993136";
+const TRAINING_CHANNEL_ID  = "1489215317316993136";
 const TRAINING_PING_ROLE_ID = "1489227175394676807";
+
+interface TrainingSession {
+  trainingId: string;
+  hostId: string;
+  hostMention: string;
+  attendees: Set<string>;
+  ended: boolean;
+  startedAt: number;
+}
+const trainingSessions = new Map<string, TrainingSession>();
+
+function buttonMemberHasRole(
+  member: ButtonInteraction["member"],
+  roleId: string,
+): boolean {
+  return !!(
+    member &&
+    "roles" in member &&
+    (Array.isArray(member.roles)
+      ? member.roles.includes(roleId)
+      : (member.roles as { cache: Map<string, unknown> }).cache.has(roleId))
+  );
+}
 
 const TRAINING_TYPES: Record<string, { label: string; description: string; pingRole: string | null }> = {
   initial_training_programme: {
@@ -261,10 +284,7 @@ const hostCommand = new SlashCommandBuilder()
         o.setName("host").setDescription("The host of the training").setRequired(true),
       )
       .addStringOption((o) =>
-        o
-          .setName("time")
-          .setDescription('Starting time (e.g. "15 minutes")')
-          .setRequired(true),
+        o.setName("time").setDescription('Starting time (e.g. "15 minutes")').setRequired(true),
       )
       .addStringOption((o) =>
         o
@@ -278,7 +298,67 @@ const hostCommand = new SlashCommandBuilder()
       ),
   );
 
+// ─── /mark ────────────────────────────────────────────────────────────────────
+
+const markCommand = new SlashCommandBuilder()
+  .setName("mark")
+  .setDescription("Mark a user's training attendance")
+  .addUserOption((o) =>
+    o.setName("user").setDescription("The user to mark").setRequired(true),
+  )
+  .addStringOption((o) =>
+    o
+      .setName("type")
+      .setDescription("Attendance type")
+      .setRequired(true)
+      .addChoices(
+        { name: "Absent",   value: "Absent" },
+        { name: "Attended", value: "Attended" },
+      ),
+  );
+
+async function handleMark(interaction: ChatInputCommandInteraction) {
+  if (!memberHasRole(interaction.member, HOST_ALLOWED_ROLE_ID)) {
+    await interaction.reply({ content: "You do not have permission to use this command.", flags: 64 });
+    return;
+  }
+
+  const targetUser = interaction.options.getUser("user", true);
+  const markType   = interaction.options.getString("type", true);
+
+  await interaction.deferReply({ flags: 64 });
+
+  const sessions = [...trainingSessions.values()].sort((a, b) => b.startedAt - a.startedAt);
+  const session  = sessions[0] ?? null;
+
+  if (!session) {
+    await interaction.editReply({ content: "No training sessions found. Host a training first." });
+    return;
+  }
+
+  try {
+    await targetUser.send(
+      `Hey there, ${targetUser.username}. You have been marked as **${markType}** in **${session.trainingId}**. ` +
+      `If this was a mistake, please ping <@${session.hostId}> and address the issue. Thank you for your understanding.`,
+    );
+  } catch (err) {
+    logger.warn({ err, targetUserId: targetUser.id }, "Could not DM user for mark");
+    await interaction.editReply({
+      content: `Could not DM ${targetUser} — they may have DMs disabled. Mark recorded as **${markType}** in **${session.trainingId}**.`,
+    });
+    return;
+  }
+
+  await interaction.editReply({
+    content: `${targetUser} has been marked as **${markType}** in **${session.trainingId}** and notified via DM.`,
+  });
+  logger.info({ targetUserId: targetUser.id, markType, trainingId: session.trainingId, invoker: interaction.user.id }, "User marked");
+}
+
+// ─── Embed & button builders ──────────────────────────────────────────────────
+
 function buildTrainingEmbed(opts: {
+  trainingId: string;
   hostMention: string;
   coHostMention: string;
   time: string;
@@ -297,7 +377,7 @@ function buildTrainingEmbed(opts: {
 
   return new EmbedBuilder()
     .setColor(s.color)
-    .setTitle(`🟩 | ${opts.trainingType} Ping`)
+    .setTitle(opts.trainingType)
     .setDescription(opts.description)
     .addFields(
       { name: "Host",          value: opts.hostMention },
@@ -305,28 +385,50 @@ function buildTrainingEmbed(opts: {
       { name: "Starting Time", value: `In ${opts.time}` },
       { name: "Status",        value: `${s.emoji} ${s.label}` },
     )
-    .setFooter({ text: `Announced by ${opts.issuerName}`, iconURL: opts.issuerAvatar });
+    .setFooter({
+      text: `Training ID: ${opts.trainingId} | Announced by ${opts.issuerName}`,
+      iconURL: opts.issuerAvatar,
+    });
 }
 
-function buildTrainingButtons(status: "open" | "locked" | "ended") {
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+function buildTrainingRows(
+  status: "open" | "locked" | "ended",
+  trainingId: string,
+): ActionRowBuilder<ButtonBuilder>[] {
+  const ended = status === "ended";
+  const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId("training_open")
+      .setCustomId(`training_open_${trainingId}`)
       .setLabel("Open")
       .setStyle(ButtonStyle.Success)
-      .setDisabled(status === "open"),
+      .setDisabled(status === "open" || ended),
     new ButtonBuilder()
-      .setCustomId("training_lock")
+      .setCustomId(`training_lock_${trainingId}`)
       .setLabel("Lock")
       .setStyle(ButtonStyle.Primary)
-      .setDisabled(status === "locked"),
+      .setDisabled(status === "locked" || ended),
     new ButtonBuilder()
-      .setCustomId("training_end")
+      .setCustomId(`training_end_${trainingId}`)
       .setLabel("End/Cancel")
       .setStyle(ButtonStyle.Danger)
-      .setDisabled(status === "ended"),
+      .setDisabled(ended),
   );
+  const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`training_attend_${trainingId}`)
+      .setLabel("Attend")
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(ended),
+    new ButtonBuilder()
+      .setCustomId(`training_viewattendees_${trainingId}`)
+      .setLabel("View Attendees")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(ended),
+  );
+  return [row1, row2];
 }
+
+// ─── Command handler ──────────────────────────────────────────────────────────
 
 async function handleHostTraining(interaction: ChatInputCommandInteraction) {
   if (!memberHasRole(interaction.member, HOST_ALLOWED_ROLE_ID)) {
@@ -334,12 +436,13 @@ async function handleHostTraining(interaction: ChatInputCommandInteraction) {
     return;
   }
 
-  const host = interaction.options.getUser("host", true);
-  const coHost = interaction.options.getUser("cohost") ?? null;
-  const time = interaction.options.getString("time", true);
+  const host    = interaction.options.getUser("host", true);
+  const coHost  = interaction.options.getUser("cohost") ?? null;
+  const time    = interaction.options.getString("time", true);
   const typeKey = interaction.options.getString("type", true);
-  const trainingType = TRAINING_TYPES[typeKey];
-  const issuer = interaction.user;
+  const type    = TRAINING_TYPES[typeKey];
+  const issuer  = interaction.user;
+  const trainingId = `TRN${generateCaseId()}`;
 
   await interaction.deferReply({ flags: 64 });
 
@@ -349,47 +452,87 @@ async function handleHostTraining(interaction: ChatInputCommandInteraction) {
     return;
   }
 
+  trainingSessions.set(trainingId, {
+    trainingId,
+    hostId:      host.id,
+    hostMention: `${host}`,
+    attendees:   new Set(),
+    ended:       false,
+    startedAt:   Date.now(),
+  });
+
   const embed = buildTrainingEmbed({
+    trainingId,
     hostMention:   `${host} (@${host.username})`,
     coHostMention: coHost ? `${coHost} (@${coHost.username})` : "-",
     time,
-    trainingType:  trainingType.label,
-    description:   trainingType.description,
+    trainingType:  type.label,
+    description:   type.description,
     status:        "open",
     issuerName:    issuer.displayName ?? issuer.username,
     issuerAvatar:  issuer.displayAvatarURL(),
   });
 
-  const pingContent = trainingType.pingRole ? `<@&${trainingType.pingRole}>` : undefined;
-
   await channel.send({
-    content: pingContent,
-    embeds: [embed],
-    components: [buildTrainingButtons("open")],
+    content:    type.pingRole ? `<@&${type.pingRole}>` : undefined,
+    embeds:     [embed],
+    components: buildTrainingRows("open", trainingId),
   });
 
-  await interaction.editReply({ content: `Training announcement posted in <#${TRAINING_CHANNEL_ID}>.` });
-  logger.info({ hostId: host.id, time, typeKey, invoker: issuer.id }, "Training announced");
+  await interaction.editReply({ content: `Training **${trainingId}** announced in <#${TRAINING_CHANNEL_ID}>.` });
+  logger.info({ trainingId, hostId: host.id, time, typeKey, invoker: issuer.id }, "Training announced");
 }
 
+// ─── Button handler ───────────────────────────────────────────────────────────
+
 async function handleTrainingButton(interaction: ButtonInteraction) {
-  // Role check — only the allowed role can change the status
-  const member = interaction.member;
-  const hasRole = !!(
-    member &&
-    "roles" in member &&
-    (Array.isArray(member.roles)
-      ? member.roles.includes(HOST_ALLOWED_ROLE_ID)
-      : (member.roles as { cache: Map<string, unknown> }).cache.has(HOST_ALLOWED_ROLE_ID))
-  );
-  if (!hasRole) {
+  const cid        = interaction.customId;
+  const trainingId = cid.split("_").at(-1)!;
+  const session    = trainingSessions.get(trainingId);
+
+  // ── Attend ────────────────────────────────────────────────────────────────
+  if (cid.startsWith("training_attend_")) {
+    if (!buttonMemberHasRole(interaction.member, TRAINING_PING_ROLE_ID)) {
+      await interaction.reply({ content: "You do not have permission to mark yourself as attending.", flags: 64 });
+      return;
+    }
+    if (session?.ended) {
+      await interaction.reply({ content: "This training has already ended.", flags: 64 });
+      return;
+    }
+    if (session?.attendees.has(interaction.user.id)) {
+      await interaction.reply({ content: "You are already marked as attending.", flags: 64 });
+      return;
+    }
+    session?.attendees.add(interaction.user.id);
+    await interaction.reply({ content: "You have been marked as attending!", flags: 64 });
+    return;
+  }
+
+  // ── View Attendees ────────────────────────────────────────────────────────
+  if (cid.startsWith("training_viewattendees_")) {
+    if (!session || session.attendees.size === 0) {
+      await interaction.reply({ content: "No attendees yet.", flags: 64 });
+      return;
+    }
+    const list = [...session.attendees].map((id) => `<@${id}>`).join("\n");
+    await interaction.reply({ content: `**Attendees (${session.attendees.size}):**\n${list}`, flags: 64 });
+    return;
+  }
+
+  // ── Status buttons (Open / Lock / End/Cancel) ─────────────────────────────
+  if (!buttonMemberHasRole(interaction.member, HOST_ALLOWED_ROLE_ID)) {
     await interaction.reply({ content: "You do not have permission to change the training status.", flags: 64 });
     return;
   }
 
-  const id = interaction.customId;
   const status: "open" | "locked" | "ended" =
-    id === "training_open" ? "open" : id === "training_lock" ? "locked" : "ended";
+    cid.startsWith("training_open_") ? "open" :
+    cid.startsWith("training_lock_") ? "locked" : "ended";
+
+  if (session) {
+    session.ended = status === "ended";
+  }
 
   const original = interaction.message.embeds[0];
   if (!original) {
@@ -397,14 +540,12 @@ async function handleTrainingButton(interaction: ButtonInteraction) {
     return;
   }
 
-  const hostField     = original.fields.find((f) => f.name === "Host")?.value ?? "-";
-  const coHostField   = original.fields.find((f) => f.name === "Co Host")?.value ?? "-";
-  const timeRaw       = original.fields.find((f) => f.name === "Starting Time")?.value ?? "In -";
-  const time          = timeRaw.replace(/^In /, "");
-  const footer        = original.footer;
-  const title         = original.title ?? "🟩 | Training Ping";
-  const trainingLabel = title.replace(/^🟩 \| /, "").replace(/ Ping$/, "");
-  const description   = original.description ?? "";
+  const hostField    = original.fields.find((f) => f.name === "Host")?.value ?? "-";
+  const coHostField  = original.fields.find((f) => f.name === "Co Host")?.value ?? "-";
+  const timeRaw      = original.fields.find((f) => f.name === "Starting Time")?.value ?? "In -";
+  const footer       = original.footer;
+  const description  = original.description ?? "";
+  const title        = original.title ?? "Training";
 
   const statusMap = {
     open:   { emoji: "🟢", label: "Open",           color: 0x2ecc71 as const },
@@ -415,12 +556,12 @@ async function handleTrainingButton(interaction: ButtonInteraction) {
 
   const updated = new EmbedBuilder()
     .setColor(s.color)
-    .setTitle(`🟩 | ${trainingLabel} Ping`)
+    .setTitle(title)
     .setDescription(description)
     .addFields(
       { name: "Host",          value: hostField },
       { name: "Co Host",       value: coHostField },
-      { name: "Starting Time", value: `In ${time}` },
+      { name: "Starting Time", value: timeRaw },
       { name: "Status",        value: `${s.emoji} ${s.label}` },
     );
 
@@ -428,8 +569,8 @@ async function handleTrainingButton(interaction: ButtonInteraction) {
     updated.setFooter({ text: footer.text, iconURL: footer.iconURL ?? undefined });
   }
 
-  await interaction.update({ embeds: [updated], components: [buildTrainingButtons(status)] });
-  logger.info({ status, invoker: interaction.user.id }, "Training status updated");
+  await interaction.update({ embeds: [updated], components: buildTrainingRows(status, trainingId) });
+  logger.info({ trainingId, status, invoker: interaction.user.id }, "Training status updated");
 }
 
 // ─── Registration & client ────────────────────────────────────────────────────
@@ -439,7 +580,7 @@ async function registerCommands() {
   try {
     logger.info("Registering Discord slash commands globally...");
     await rest.put(Routes.applicationCommands(applicationId!), {
-      body: [dmCommand.toJSON(), promoteCommand.toJSON(), nicknameCommand.toJSON(), hostCommand.toJSON()],
+      body: [dmCommand.toJSON(), promoteCommand.toJSON(), nicknameCommand.toJSON(), hostCommand.toJSON(), markCommand.toJSON()],
     });
     logger.info("Discord slash commands registered successfully.");
   } catch (err) {
@@ -472,8 +613,16 @@ export async function startBot() {
         else if (interaction.commandName === "promote") await handlePromote(interaction);
         else if (interaction.commandName === "nickname") await handleNickname(interaction);
         else if (interaction.commandName === "host" && sub === "training") await handleHostTraining(interaction);
+        else if (interaction.commandName === "mark") await handleMark(interaction);
       } else if (interaction.isButton()) {
-        if (["training_open", "training_lock", "training_end"].includes(interaction.customId)) {
+        const cid = interaction.customId;
+        if (
+          cid.startsWith("training_open_") ||
+          cid.startsWith("training_lock_") ||
+          cid.startsWith("training_end_") ||
+          cid.startsWith("training_attend_") ||
+          cid.startsWith("training_viewattendees_")
+        ) {
           await handleTrainingButton(interaction);
         }
       }
