@@ -237,6 +237,19 @@ async function handleNickname(interaction: ChatInputCommandInteraction) {
 
 // ─── /host training ───────────────────────────────────────────────────────────
 
+const HOST_ALLOWED_ROLE_ID = "1489217034347741214";
+const TRAINING_CHANNEL_ID = "1489215317316993136";
+const TRAINING_PING_ROLE_ID = "1489227175394676807";
+
+const TRAINING_TYPES: Record<string, { label: string; description: string; pingRole: string | null }> = {
+  initial_training_programme: {
+    label: "Initial Training Programme",
+    description:
+      "An Initial Training Programme has been started, join the in-game server and enter the Whitelisted Team. Then, head to the briefing room to attend the training.",
+    pingRole: TRAINING_PING_ROLE_ID,
+  },
+};
+
 const hostCommand = new SlashCommandBuilder()
   .setName("host")
   .setDescription("Hosting commands")
@@ -244,35 +257,55 @@ const hostCommand = new SlashCommandBuilder()
     sub
       .setName("training")
       .setDescription("Announce a training session")
-      .addUserOption((o) => o.setName("host").setDescription("The host of the training").setRequired(true))
-      .addStringOption((o) => o.setName("time").setDescription('Starting time (e.g. "15 minutes")').setRequired(true))
+      .addUserOption((o) =>
+        o.setName("host").setDescription("The host of the training").setRequired(true),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("time")
+          .setDescription('Starting time (e.g. "15 minutes")')
+          .setRequired(true),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("type")
+          .setDescription("Type of training")
+          .setRequired(true)
+          .addChoices({ name: "Initial Training Programme", value: "initial_training_programme" }),
+      )
+      .addUserOption((o) =>
+        o.setName("cohost").setDescription("The co-host of the training (optional)").setRequired(false),
+      ),
   );
 
-function buildTrainingEmbed(
-  hostTag: string,
-  hostMention: string,
-  time: string,
-  status: "open" | "locked" | "ended",
-  issuerName: string,
-  issuerAvatar: string,
-): EmbedBuilder {
+function buildTrainingEmbed(opts: {
+  hostMention: string;
+  coHostMention: string;
+  time: string;
+  trainingType: string;
+  description: string;
+  status: "open" | "locked" | "ended";
+  issuerName: string;
+  issuerAvatar: string;
+}): EmbedBuilder {
   const statusMap = {
-    open: { emoji: "🟢", label: "Open", color: 0x2ecc71 as const },
-    locked: { emoji: "🔵", label: "Locked", color: 0x3498db as const },
-    ended: { emoji: "🔴", label: "Ended/Cancelled", color: 0xe74c3c as const },
+    open:   { emoji: "🟢", label: "Open",           color: 0x2ecc71 as const },
+    locked: { emoji: "🔵", label: "Locked",          color: 0x3498db as const },
+    ended:  { emoji: "🔴", label: "Ended/Cancelled", color: 0xe74c3c as const },
   };
-  const s = statusMap[status];
+  const s = statusMap[opts.status];
 
   return new EmbedBuilder()
     .setColor(s.color)
-    .setTitle("🟩 | Training Ping")
+    .setTitle(`🟩 | ${opts.trainingType} Ping`)
+    .setDescription(opts.description)
     .addFields(
-      { name: "Host", value: hostMention },
-      { name: "Co Host", value: "-" },
-      { name: "Starting Time", value: `In ${time}` },
-      { name: "Status", value: `${s.emoji} ${s.label}` },
+      { name: "Host",          value: opts.hostMention },
+      { name: "Co Host",       value: opts.coHostMention },
+      { name: "Starting Time", value: `In ${opts.time}` },
+      { name: "Status",        value: `${s.emoji} ${s.label}` },
     )
-    .setFooter({ text: `Announced by ${issuerName}`, iconURL: issuerAvatar });
+    .setFooter({ text: `Announced by ${opts.issuerName}`, iconURL: opts.issuerAvatar });
 }
 
 function buildTrainingButtons(status: "open" | "locked" | "ended") {
@@ -296,30 +329,64 @@ function buildTrainingButtons(status: "open" | "locked" | "ended") {
 }
 
 async function handleHostTraining(interaction: ChatInputCommandInteraction) {
+  if (!memberHasRole(interaction.member, HOST_ALLOWED_ROLE_ID)) {
+    await interaction.reply({ content: "You do not have permission to use this command.", flags: 64 });
+    return;
+  }
+
   const host = interaction.options.getUser("host", true);
+  const coHost = interaction.options.getUser("cohost") ?? null;
   const time = interaction.options.getString("time", true);
+  const typeKey = interaction.options.getString("type", true);
+  const trainingType = TRAINING_TYPES[typeKey];
   const issuer = interaction.user;
 
-  await interaction.deferReply();
+  await interaction.deferReply({ flags: 64 });
 
-  const embed = buildTrainingEmbed(
-    host.tag,
-    `${host} (@${host.username})`,
+  const channel = await interaction.client.channels.fetch(TRAINING_CHANNEL_ID).catch(() => null);
+  if (!channel?.isTextBased()) {
+    await interaction.editReply({ content: "Training channel not found or is not a text channel." });
+    return;
+  }
+
+  const embed = buildTrainingEmbed({
+    hostMention:   `${host} (@${host.username})`,
+    coHostMention: coHost ? `${coHost} (@${coHost.username})` : "-",
     time,
-    "open",
-    issuer.displayName ?? issuer.username,
-    issuer.displayAvatarURL(),
-  );
+    trainingType:  trainingType.label,
+    description:   trainingType.description,
+    status:        "open",
+    issuerName:    issuer.displayName ?? issuer.username,
+    issuerAvatar:  issuer.displayAvatarURL(),
+  });
 
-  await interaction.editReply({
+  const pingContent = trainingType.pingRole ? `<@&${trainingType.pingRole}>` : undefined;
+
+  await channel.send({
+    content: pingContent,
     embeds: [embed],
     components: [buildTrainingButtons("open")],
   });
 
-  logger.info({ hostId: host.id, time, invoker: issuer.id }, "Training announced");
+  await interaction.editReply({ content: `Training announcement posted in <#${TRAINING_CHANNEL_ID}>.` });
+  logger.info({ hostId: host.id, time, typeKey, invoker: issuer.id }, "Training announced");
 }
 
 async function handleTrainingButton(interaction: ButtonInteraction) {
+  // Role check — only the allowed role can change the status
+  const member = interaction.member;
+  const hasRole = !!(
+    member &&
+    "roles" in member &&
+    (Array.isArray(member.roles)
+      ? member.roles.includes(HOST_ALLOWED_ROLE_ID)
+      : (member.roles as { cache: Map<string, unknown> }).cache.has(HOST_ALLOWED_ROLE_ID))
+  );
+  if (!hasRole) {
+    await interaction.reply({ content: "You do not have permission to change the training status.", flags: 64 });
+    return;
+  }
+
   const id = interaction.customId;
   const status: "open" | "locked" | "ended" =
     id === "training_open" ? "open" : id === "training_lock" ? "locked" : "ended";
@@ -330,38 +397,38 @@ async function handleTrainingButton(interaction: ButtonInteraction) {
     return;
   }
 
-  // Rebuild embed preserving Host, Co Host, Starting Time fields, updating Status
-  const hostField = original.fields.find((f) => f.name === "Host")?.value ?? "-";
-  const coHostField = original.fields.find((f) => f.name === "Co Host")?.value ?? "-";
-  const timeField = original.fields.find((f) => f.name === "Starting Time")?.value?.replace(/^In /, "") ?? "-";
-  const footer = original.footer;
+  const hostField     = original.fields.find((f) => f.name === "Host")?.value ?? "-";
+  const coHostField   = original.fields.find((f) => f.name === "Co Host")?.value ?? "-";
+  const timeRaw       = original.fields.find((f) => f.name === "Starting Time")?.value ?? "In -";
+  const time          = timeRaw.replace(/^In /, "");
+  const footer        = original.footer;
+  const title         = original.title ?? "🟩 | Training Ping";
+  const trainingLabel = title.replace(/^🟩 \| /, "").replace(/ Ping$/, "");
+  const description   = original.description ?? "";
 
   const statusMap = {
-    open: { emoji: "🟢", label: "Open", color: 0x2ecc71 as const },
-    locked: { emoji: "🔵", label: "Locked", color: 0x3498db as const },
-    ended: { emoji: "🔴", label: "Ended/Cancelled", color: 0xe74c3c as const },
+    open:   { emoji: "🟢", label: "Open",           color: 0x2ecc71 as const },
+    locked: { emoji: "🔵", label: "Locked",          color: 0x3498db as const },
+    ended:  { emoji: "🔴", label: "Ended/Cancelled", color: 0xe74c3c as const },
   };
   const s = statusMap[status];
 
   const updated = new EmbedBuilder()
     .setColor(s.color)
-    .setTitle("🟩 | Training Ping")
+    .setTitle(`🟩 | ${trainingLabel} Ping`)
+    .setDescription(description)
     .addFields(
-      { name: "Host", value: hostField },
-      { name: "Co Host", value: coHostField },
-      { name: "Starting Time", value: `In ${timeField}` },
-      { name: "Status", value: `${s.emoji} ${s.label}` },
+      { name: "Host",          value: hostField },
+      { name: "Co Host",       value: coHostField },
+      { name: "Starting Time", value: `In ${time}` },
+      { name: "Status",        value: `${s.emoji} ${s.label}` },
     );
 
   if (footer) {
     updated.setFooter({ text: footer.text, iconURL: footer.iconURL ?? undefined });
   }
 
-  await interaction.update({
-    embeds: [updated],
-    components: [buildTrainingButtons(status)],
-  });
-
+  await interaction.update({ embeds: [updated], components: [buildTrainingButtons(status)] });
   logger.info({ status, invoker: interaction.user.id }, "Training status updated");
 }
 
