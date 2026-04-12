@@ -86,7 +86,7 @@ async function handleDm(interaction: ChatInputCommandInteraction) {
 
 // ─── /promote ─────────────────────────────────────────────────────────────────
 
-const PROMOTION_CHANNEL_ID = "1488470650707378307";
+const PROMOTION_CHANNEL_ID = "1492700739921903776";
 
 const promoteCommand = new SlashCommandBuilder()
   .setName("promote")
@@ -159,6 +159,125 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
   } catch (err) {
     logger.error({ err }, "Failed to send promotion embed");
     await interaction.editReply({ content: "Failed to post the promotion. Make sure the bot has access to the promotion channel." });
+    return;
+  }
+
+  // DM the promoted user
+  try {
+    await targetUser.send({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0x5865f2)
+          .setTitle("You Have Been Promoted!")
+          .addFields(
+            { name: "Promoted To", value: `<@&${role.id}>` },
+            { name: "Reason", value: reason },
+            { name: "Issued By", value: `${issuer} (@${issuer.username})` },
+          )
+          .setFooter({ text: `Case ID: ${caseId} | ${timestamp}` })
+          .setTimestamp(),
+      ],
+    });
+  } catch (err) {
+    logger.warn({ err, targetUserId: targetUser.id }, "Could not DM user about promotion");
+  }
+}
+
+// ─── /infract ─────────────────────────────────────────────────────────────────
+
+const INFRACTION_CHANNEL_ID = "1492700966292557968";
+const INFRACT_ALLOWED_ROLE_ID = "1487807942077190291";
+
+const infractCommand = new SlashCommandBuilder()
+  .setName("infract")
+  .setDescription("Issue a staff infraction")
+  .addUserOption((o) => o.setName("user").setDescription("The user to infract").setRequired(true))
+  .addStringOption((o) =>
+    o
+      .setName("type")
+      .setDescription("Type of infraction")
+      .setRequired(true)
+      .addChoices(
+        { name: "Warning", value: "Warning" },
+        { name: "Strike", value: "Strike" },
+        { name: "Demotion", value: "Demotion" },
+        { name: "Termination", value: "Termination" },
+      ),
+  )
+  .addStringOption((o) => o.setName("reason").setDescription("Reason for the infraction").setRequired(true));
+
+async function handleInfract(interaction: ChatInputCommandInteraction) {
+  if (!memberHasRole(interaction.member, INFRACT_ALLOWED_ROLE_ID)) {
+    await interaction.reply({ content: "You do not have permission to use this command.", flags: 64 });
+    return;
+  }
+
+  const targetUser = interaction.options.getUser("user", true);
+  const infractionType = interaction.options.getString("type", true);
+  const reason = interaction.options.getString("reason", true);
+  const issuer = interaction.user;
+  const guild = interaction.guild;
+  const caseId = generateCaseId();
+  const now = new Date();
+  const timestamp =
+    now.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) +
+    " " +
+    now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+
+  await interaction.deferReply({ flags: 64 });
+
+  const colorMap: Record<string, number> = {
+    Warning: 0xf1c40f,
+    Strike: 0xe67e22,
+    Demotion: 0xe74c3c,
+    Termination: 0x992d22,
+  };
+
+  const embed = new EmbedBuilder()
+    .setColor((colorMap[infractionType] ?? 0xe74c3c) as number)
+    .setAuthor({ name: `Infraction Issued by ${issuer.displayName ?? issuer.username}`, iconURL: issuer.displayAvatarURL() })
+    .setTitle(`Staff Infraction — ${infractionType}`)
+    .setThumbnail(guild?.iconURL() ?? null)
+    .addFields(
+      { name: "Infracted User", value: `${targetUser} (@${targetUser.username})` },
+      { name: "Infraction Type", value: infractionType },
+      { name: "Reason", value: reason },
+    )
+    .setFooter({ text: `Case ID: ${caseId} | ${timestamp}`, iconURL: issuer.displayAvatarURL() });
+
+  try {
+    const channel = await interaction.client.channels.fetch(INFRACTION_CHANNEL_ID);
+    if (!channel?.isTextBased()) {
+      await interaction.editReply({ content: "Infraction channel not found or is not a text channel." });
+      return;
+    }
+    await channel.send({ content: `${targetUser} (@${targetUser.username})`, embeds: [embed] });
+    await interaction.editReply({ content: `Infraction posted in <#${INFRACTION_CHANNEL_ID}>.` });
+    logger.info({ infractedUserId: targetUser.id, infractionType, caseId, invoker: issuer.id }, "Infraction issued");
+  } catch (err) {
+    logger.error({ err }, "Failed to send infraction embed");
+    await interaction.editReply({ content: "Failed to post the infraction. Make sure the bot has access to the infraction channel." });
+    return;
+  }
+
+  // DM the infracted user
+  try {
+    await targetUser.send({
+      embeds: [
+        new EmbedBuilder()
+          .setColor((colorMap[infractionType] ?? 0xe74c3c) as number)
+          .setTitle(`You Have Received a Staff Infraction — ${infractionType}`)
+          .addFields(
+            { name: "Infraction Type", value: infractionType },
+            { name: "Reason", value: reason },
+            { name: "Issued By", value: `${issuer} (@${issuer.username})` },
+          )
+          .setFooter({ text: `Case ID: ${caseId} | ${timestamp}` })
+          .setTimestamp(),
+      ],
+    });
+  } catch (err) {
+    logger.warn({ err, targetUserId: targetUser.id }, "Could not DM user about infraction");
   }
 }
 
@@ -235,11 +354,11 @@ async function handleNickname(interaction: ChatInputCommandInteraction) {
   logger.info({ targetUserId: targetUser.id, oldNickname, newNickname, invoker: issuer.id }, "Nickname changed");
 }
 
-// ─── /host training & /mark ───────────────────────────────────────────────────
+// ─── /host training ───────────────────────────────────────────────────────────
 
-const HOST_ALLOWED_ROLE_ID = "1489217034347741214";
-const TRAINING_CHANNEL_ID  = "1489215317316993136";
-const TRAINING_PING_ROLE_ID = "1489227175394676807";
+const HOST_ALLOWED_ROLE_ID = "1492702143126437939";
+const TRAINING_CHANNEL_ID  = "1492702523721777192";
+const TRAINING_PING_ROLE_ID = "1492701877991899206";
 
 interface TrainingSession {
   trainingId: string;
@@ -265,10 +384,10 @@ function buttonMemberHasRole(
 }
 
 const TRAINING_TYPES: Record<string, { label: string; description: string; pingRole: string | null }> = {
-  initial_training_programme: {
-    label: "Initial Training Programme",
+  staff_training: {
+    label: "Staff Training",
     description:
-      "An Initial Training Programme has been started, join the in-game server and enter the Whitelisted Team. Then, head to the briefing room to attend the training.",
+      "Hello, trainees. Thank you for your interest in joining our vibrant staff team. Before you join our staff team, you are required to go through a Staff Training to ensure you meet our requirements. The training may take about 30 minutes depending on the amount on attendees. Please press the button below if you are attending this training. Good Luck.",
     pingRole: TRAINING_PING_ROLE_ID,
   },
 };
@@ -291,69 +410,12 @@ const hostCommand = new SlashCommandBuilder()
           .setName("type")
           .setDescription("Type of training")
           .setRequired(true)
-          .addChoices({ name: "Initial Training Programme", value: "initial_training_programme" }),
+          .addChoices({ name: "Staff Training", value: "staff_training" }),
       )
       .addUserOption((o) =>
         o.setName("cohost").setDescription("The co-host of the training (optional)").setRequired(false),
       ),
   );
-
-// ─── /mark ────────────────────────────────────────────────────────────────────
-
-const markCommand = new SlashCommandBuilder()
-  .setName("mark")
-  .setDescription("Mark a user's training attendance")
-  .addUserOption((o) =>
-    o.setName("user").setDescription("The user to mark").setRequired(true),
-  )
-  .addStringOption((o) =>
-    o
-      .setName("type")
-      .setDescription("Attendance type")
-      .setRequired(true)
-      .addChoices(
-        { name: "Absent",   value: "Absent" },
-        { name: "Attended", value: "Attended" },
-      ),
-  );
-
-async function handleMark(interaction: ChatInputCommandInteraction) {
-  if (!memberHasRole(interaction.member, HOST_ALLOWED_ROLE_ID)) {
-    await interaction.reply({ content: "You do not have permission to use this command.", flags: 64 });
-    return;
-  }
-
-  const targetUser = interaction.options.getUser("user", true);
-  const markType   = interaction.options.getString("type", true);
-
-  await interaction.deferReply({ flags: 64 });
-
-  const sessions = [...trainingSessions.values()].sort((a, b) => b.startedAt - a.startedAt);
-  const session  = sessions[0] ?? null;
-
-  if (!session) {
-    await interaction.editReply({ content: "No training sessions found. Host a training first." });
-    return;
-  }
-
-  try {
-    await targetUser.send(
-      `Hey there, ${targetUser.username}. You have been marked as **${markType}** in **${session.trainingId}**. ` +
-      `If this was a mistake, please ping <@${session.hostId}> and address the issue. Thank you for your understanding.`,
-    );
-  } catch (err) {
-    logger.warn({ err, targetUserId: targetUser.id }, "Could not DM user for mark");
-    await interaction.editReply({
-      content: `Could not DM ${targetUser} — they may have DMs disabled. Mark recorded as **${markType}** in **${session.trainingId}**.`,
-    });
-    return;
-  }
-
-  await interaction.editReply({
-    content: `${targetUser} has been marked as **${markType}** in **${session.trainingId}** and notified via DM.`,
-  });
-  logger.info({ targetUserId: targetUser.id, markType, trainingId: session.trainingId, invoker: interaction.user.id }, "User marked");
-}
 
 // ─── Embed & button builders ──────────────────────────────────────────────────
 
@@ -580,7 +642,7 @@ async function registerCommands() {
   try {
     logger.info("Registering Discord slash commands globally...");
     await rest.put(Routes.applicationCommands(applicationId!), {
-      body: [dmCommand.toJSON(), promoteCommand.toJSON(), nicknameCommand.toJSON(), hostCommand.toJSON(), markCommand.toJSON()],
+      body: [dmCommand.toJSON(), promoteCommand.toJSON(), infractCommand.toJSON(), nicknameCommand.toJSON(), hostCommand.toJSON()],
     });
     logger.info("Discord slash commands registered successfully.");
   } catch (err) {
@@ -611,9 +673,9 @@ export async function startBot() {
         const sub = interaction.options.getSubcommand(false);
         if (interaction.commandName === "dm") await handleDm(interaction);
         else if (interaction.commandName === "promote") await handlePromote(interaction);
+        else if (interaction.commandName === "infract") await handleInfract(interaction);
         else if (interaction.commandName === "nickname") await handleNickname(interaction);
         else if (interaction.commandName === "host" && sub === "training") await handleHostTraining(interaction);
-        else if (interaction.commandName === "mark") await handleMark(interaction);
       } else if (interaction.isButton()) {
         const cid = interaction.customId;
         if (
