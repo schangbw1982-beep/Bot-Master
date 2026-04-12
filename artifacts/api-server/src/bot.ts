@@ -16,9 +16,31 @@ import { logger } from "./lib/logger";
 const token = process.env["DISCORD_BOT_TOKEN"];
 const applicationId = process.env["DISCORD_APPLICATION_ID"];
 
-const DM_ALLOWED_ROLE_ID = "1488086630731616337";
-const PROMOTE_ALLOWED_ROLE_ID = "1487807942077190291";
-const NICKNAME_ALLOWED_ROLE_ID = "1489216408620630186";
+// ─── Role IDs ─────────────────────────────────────────────────────────────────
+
+const DM_ALLOWED_ROLE_ID          = "1488086630731616337";
+const PROMOTE_ALLOWED_ROLE_ID     = "1492711090595958805"; // update if a different role should promote
+const INFRACT_ALLOWED_ROLE_ID     = "1492711090595958805"; // update if a different role should infract
+const VOID_ALLOWED_ROLE_ID        = "1492711090595958805";
+const NICKNAME_ALLOWED_ROLE_ID    = "1489216408620630186";
+const HOST_ALLOWED_ROLE_ID        = "1492702143126437939";
+
+// ─── Infraction role IDs ──────────────────────────────────────────────────────
+
+const STRIKE_1_ROLE_ID            = "1492511182488338463";
+const STRIKE_2_ROLE_ID            = "1492511315846103173";
+const STRIKE_3_ROLE_ID            = "1492511654519246848";
+const ACTIVITY_STRIKE_1_ROLE_ID   = "1492511490262175834";
+const ACTIVITY_STRIKE_2_ROLE_ID   = "1492511575532113940";
+const TERMINATION_ROLE_ID         = "1492709533926035506";
+const STAFF_BLACKLISTED_ROLE_ID   = "1492512488397344939";
+
+// ─── Channel IDs ─────────────────────────────────────────────────────────────
+
+const PROMOTION_CHANNEL_ID   = "1492700739921903776";
+const INFRACTION_CHANNEL_ID  = "1492700966292557968";
+const TRAINING_CHANNEL_ID    = "1492702523721777192";
+const TRAINING_PING_ROLE_ID  = "1492701877991899206";
 
 if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
 if (!applicationId) throw new Error("DISCORD_APPLICATION_ID is required.");
@@ -36,6 +58,25 @@ function memberHasRole(member: ChatInputCommandInteraction["member"], roleId: st
     (Array.isArray(member.roles)
       ? member.roles.includes(roleId)
       : member.roles.cache.has(roleId))
+  );
+}
+
+function buttonMemberHasRole(member: ButtonInteraction["member"], roleId: string): boolean {
+  return !!(
+    member &&
+    "roles" in member &&
+    (Array.isArray(member.roles)
+      ? member.roles.includes(roleId)
+      : (member.roles as { cache: Map<string, unknown> }).cache.has(roleId))
+  );
+}
+
+function nowTimestamp(): string {
+  const now = new Date();
+  return (
+    now.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) +
+    " " +
+    now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })
   );
 }
 
@@ -86,8 +127,6 @@ async function handleDm(interaction: ChatInputCommandInteraction) {
 
 // ─── /promote ─────────────────────────────────────────────────────────────────
 
-const PROMOTION_CHANNEL_ID = "1492700739921903776";
-
 const promoteCommand = new SlashCommandBuilder()
   .setName("promote")
   .setDescription("Issue a staff promotion")
@@ -109,11 +148,7 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
   const issuer = interaction.user;
   const guild = interaction.guild;
   const caseId = generateCaseId();
-  const now = new Date();
-  const timestamp =
-    now.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) +
-    " " +
-    now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+  const timestamp = nowTimestamp();
 
   await interaction.deferReply({ flags: 64 });
 
@@ -162,7 +197,6 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
     return;
   }
 
-  // DM the promoted user
   try {
     await targetUser.send({
       embeds: [
@@ -185,8 +219,21 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
 
 // ─── /infract ─────────────────────────────────────────────────────────────────
 
-const INFRACTION_CHANNEL_ID = "1492700966292557968";
-const INFRACT_ALLOWED_ROLE_ID = "1487807942077190291";
+// Maps each infraction type to its role and whether it triggers auto-termination
+const INFRACTION_CONFIG: Record<string, {
+  label: string;
+  roleId: string;
+  color: number;
+  autoTerminate: boolean;
+}> = {
+  strike_1:          { label: "Strike 1",          roleId: STRIKE_1_ROLE_ID,          color: 0xf1c40f, autoTerminate: false },
+  strike_2:          { label: "Strike 2",          roleId: STRIKE_2_ROLE_ID,          color: 0xe67e22, autoTerminate: false },
+  strike_3:          { label: "Strike 3",          roleId: STRIKE_3_ROLE_ID,          color: 0xe74c3c, autoTerminate: true  },
+  activity_strike_1: { label: "Activity Strike 1", roleId: ACTIVITY_STRIKE_1_ROLE_ID, color: 0xe67e22, autoTerminate: false },
+  activity_strike_2: { label: "Activity Strike 2", roleId: ACTIVITY_STRIKE_2_ROLE_ID, color: 0xe74c3c, autoTerminate: true  },
+  termination:       { label: "Termination",       roleId: TERMINATION_ROLE_ID,       color: 0x992d22, autoTerminate: false },
+  staff_blacklisted: { label: "Staff Blacklisted", roleId: STAFF_BLACKLISTED_ROLE_ID, color: 0x2c2f33, autoTerminate: false },
+};
 
 const infractCommand = new SlashCommandBuilder()
   .setName("infract")
@@ -198,10 +245,13 @@ const infractCommand = new SlashCommandBuilder()
       .setDescription("Type of infraction")
       .setRequired(true)
       .addChoices(
-        { name: "Warning", value: "Warning" },
-        { name: "Strike", value: "Strike" },
-        { name: "Demotion", value: "Demotion" },
-        { name: "Termination", value: "Termination" },
+        { name: "Strike 1",          value: "strike_1"          },
+        { name: "Strike 2",          value: "strike_2"          },
+        { name: "Strike 3 (Auto-Termination)", value: "strike_3" },
+        { name: "Activity Strike 1", value: "activity_strike_1" },
+        { name: "Activity Strike 2 (Auto-Termination)", value: "activity_strike_2" },
+        { name: "Termination",       value: "termination"       },
+        { name: "Staff Blacklisted", value: "staff_blacklisted" },
       ),
   )
   .addStringOption((o) => o.setName("reason").setDescription("Reason for the infraction").setRequired(true));
@@ -213,34 +263,44 @@ async function handleInfract(interaction: ChatInputCommandInteraction) {
   }
 
   const targetUser = interaction.options.getUser("user", true);
-  const infractionType = interaction.options.getString("type", true);
+  const typeKey = interaction.options.getString("type", true);
   const reason = interaction.options.getString("reason", true);
+  const config = INFRACTION_CONFIG[typeKey];
   const issuer = interaction.user;
   const guild = interaction.guild;
   const caseId = generateCaseId();
-  const now = new Date();
-  const timestamp =
-    now.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) +
-    " " +
-    now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+  const timestamp = nowTimestamp();
 
   await interaction.deferReply({ flags: 64 });
 
-  const colorMap: Record<string, number> = {
-    Warning: 0xf1c40f,
-    Strike: 0xe67e22,
-    Demotion: 0xe74c3c,
-    Termination: 0x992d22,
-  };
+  // Assign the infraction role
+  if (guild) {
+    try {
+      const member = await guild.members.fetch(targetUser.id);
+      await member.roles.add(config.roleId, `${config.label} by ${issuer.tag} — ${reason}`);
+
+      // Auto-termination for Strike 3 and Activity Strike 2
+      if (config.autoTerminate) {
+        await member.roles.add(TERMINATION_ROLE_ID, `Auto-terminated due to ${config.label}`);
+      }
+    } catch (err) {
+      logger.warn({ err, userId: targetUser.id, roleId: config.roleId }, "Could not assign infraction role");
+    }
+  }
+
+  const autoTerminateNote = config.autoTerminate
+    ? "\n⚠️ **This infraction carries an AUTOMATIC TERMINATION.**"
+    : "";
 
   const embed = new EmbedBuilder()
-    .setColor((colorMap[infractionType] ?? 0xe74c3c) as number)
+    .setColor(config.color as number)
     .setAuthor({ name: `Infraction Issued by ${issuer.displayName ?? issuer.username}`, iconURL: issuer.displayAvatarURL() })
-    .setTitle(`Staff Infraction — ${infractionType}`)
+    .setTitle(`Staff Infraction — ${config.label}`)
+    .setDescription(autoTerminateNote || null)
     .setThumbnail(guild?.iconURL() ?? null)
     .addFields(
       { name: "Infracted User", value: `${targetUser} (@${targetUser.username})` },
-      { name: "Infraction Type", value: infractionType },
+      { name: "Infraction Type", value: config.label },
       { name: "Reason", value: reason },
     )
     .setFooter({ text: `Case ID: ${caseId} | ${timestamp}`, iconURL: issuer.displayAvatarURL() });
@@ -253,7 +313,7 @@ async function handleInfract(interaction: ChatInputCommandInteraction) {
     }
     await channel.send({ content: `${targetUser} (@${targetUser.username})`, embeds: [embed] });
     await interaction.editReply({ content: `Infraction posted in <#${INFRACTION_CHANNEL_ID}>.` });
-    logger.info({ infractedUserId: targetUser.id, infractionType, caseId, invoker: issuer.id }, "Infraction issued");
+    logger.info({ infractedUserId: targetUser.id, typeKey, caseId, invoker: issuer.id }, "Infraction issued");
   } catch (err) {
     logger.error({ err }, "Failed to send infraction embed");
     await interaction.editReply({ content: "Failed to post the infraction. Make sure the bot has access to the infraction channel." });
@@ -262,22 +322,111 @@ async function handleInfract(interaction: ChatInputCommandInteraction) {
 
   // DM the infracted user
   try {
+    const dmEmbed = new EmbedBuilder()
+      .setColor(config.color as number)
+      .setTitle(`You Have Received a Staff Infraction — ${config.label}`)
+      .addFields(
+        { name: "Infraction Type", value: config.label },
+        { name: "Reason", value: reason },
+        { name: "Issued By", value: `${issuer} (@${issuer.username})` },
+      )
+      .setFooter({ text: `Case ID: ${caseId} | ${timestamp}` })
+      .setTimestamp();
+
+    if (config.autoTerminate) {
+      dmEmbed.setDescription("⚠️ This infraction carries an **Automatic Termination**.");
+    }
+
+    await targetUser.send({ embeds: [dmEmbed] });
+  } catch (err) {
+    logger.warn({ err, targetUserId: targetUser.id }, "Could not DM user about infraction");
+  }
+}
+
+// ─── /void ────────────────────────────────────────────────────────────────────
+
+const voidCommand = new SlashCommandBuilder()
+  .setName("void")
+  .setDescription("Void an infraction or promotion")
+  .addStringOption((o) =>
+    o
+      .setName("type")
+      .setDescription("What to void")
+      .setRequired(true)
+      .addChoices(
+        { name: "Infraction", value: "infraction" },
+        { name: "Promotion",  value: "promotion"  },
+      ),
+  )
+  .addStringOption((o) => o.setName("caseid").setDescription("The Case ID to void").setRequired(true))
+  .addUserOption((o) => o.setName("user").setDescription("The user whose record is being voided").setRequired(true))
+  .addStringOption((o) => o.setName("reason").setDescription("Reason for voiding").setRequired(true));
+
+async function handleVoid(interaction: ChatInputCommandInteraction) {
+  if (!memberHasRole(interaction.member, VOID_ALLOWED_ROLE_ID)) {
+    await interaction.reply({ content: "You do not have permission to use this command.", flags: 64 });
+    return;
+  }
+
+  const type = interaction.options.getString("type", true) as "infraction" | "promotion";
+  const caseId = interaction.options.getString("caseid", true);
+  const targetUser = interaction.options.getUser("user", true);
+  const reason = interaction.options.getString("reason", true);
+  const issuer = interaction.user;
+  const guild = interaction.guild;
+  const timestamp = nowTimestamp();
+
+  await interaction.deferReply({ flags: 64 });
+
+  const channelId = type === "infraction" ? INFRACTION_CHANNEL_ID : PROMOTION_CHANNEL_ID;
+  const typeLabel = type === "infraction" ? "Infraction" : "Promotion";
+
+  const embed = new EmbedBuilder()
+    .setColor(0x95a5a6)
+    .setAuthor({ name: `${typeLabel} Voided by ${issuer.displayName ?? issuer.username}`, iconURL: issuer.displayAvatarURL() })
+    .setTitle(`⚪ ${typeLabel} VOIDED`)
+    .setThumbnail(guild?.iconURL() ?? null)
+    .addFields(
+      { name: "User", value: `${targetUser} (@${targetUser.username})` },
+      { name: "Voided Case ID", value: caseId },
+      { name: "Reason", value: reason },
+      { name: "Voided By", value: `${issuer} (@${issuer.username})` },
+    )
+    .setFooter({ text: `Void timestamp: ${timestamp}`, iconURL: issuer.displayAvatarURL() });
+
+  try {
+    const channel = await interaction.client.channels.fetch(channelId);
+    if (!channel?.isTextBased()) {
+      await interaction.editReply({ content: "Target channel not found or is not a text channel." });
+      return;
+    }
+    await channel.send({ content: `${targetUser} (@${targetUser.username})`, embeds: [embed] });
+    await interaction.editReply({ content: `${typeLabel} for Case ID \`${caseId}\` has been voided in <#${channelId}>.` });
+    logger.info({ caseId, type, targetUserId: targetUser.id, invoker: issuer.id }, "Record voided");
+  } catch (err) {
+    logger.error({ err }, "Failed to send void embed");
+    await interaction.editReply({ content: "Failed to post the void notice." });
+    return;
+  }
+
+  // DM the user about the void
+  try {
     await targetUser.send({
       embeds: [
         new EmbedBuilder()
-          .setColor((colorMap[infractionType] ?? 0xe74c3c) as number)
-          .setTitle(`You Have Received a Staff Infraction — ${infractionType}`)
+          .setColor(0x95a5a6)
+          .setTitle(`Your ${typeLabel} Has Been Voided`)
           .addFields(
-            { name: "Infraction Type", value: infractionType },
+            { name: "Voided Case ID", value: caseId },
             { name: "Reason", value: reason },
-            { name: "Issued By", value: `${issuer} (@${issuer.username})` },
+            { name: "Voided By", value: `${issuer} (@${issuer.username})` },
           )
-          .setFooter({ text: `Case ID: ${caseId} | ${timestamp}` })
+          .setFooter({ text: `Void timestamp: ${timestamp}` })
           .setTimestamp(),
       ],
     });
   } catch (err) {
-    logger.warn({ err, targetUserId: targetUser.id }, "Could not DM user about infraction");
+    logger.warn({ err, targetUserId: targetUser.id }, "Could not DM user about void");
   }
 }
 
@@ -322,8 +471,7 @@ async function handleNickname(interaction: ChatInputCommandInteraction) {
   } catch (err) {
     logger.error({ err, targetUserId: targetUser.id }, "Failed to set nickname");
     await interaction.editReply({
-      content:
-        "Failed to change the nickname. Make sure the bot has the **Manage Nicknames** permission in your server, and that the target user's role is below the bot's role.",
+      content: "Failed to change the nickname. Make sure the bot has the **Manage Nicknames** permission and the target user's role is below the bot's role.",
     });
     return;
   }
@@ -356,10 +504,6 @@ async function handleNickname(interaction: ChatInputCommandInteraction) {
 
 // ─── /host training ───────────────────────────────────────────────────────────
 
-const HOST_ALLOWED_ROLE_ID = "1492702143126437939";
-const TRAINING_CHANNEL_ID  = "1492702523721777192";
-const TRAINING_PING_ROLE_ID = "1492701877991899206";
-
 interface TrainingSession {
   trainingId: string;
   hostId: string;
@@ -369,19 +513,6 @@ interface TrainingSession {
   startedAt: number;
 }
 const trainingSessions = new Map<string, TrainingSession>();
-
-function buttonMemberHasRole(
-  member: ButtonInteraction["member"],
-  roleId: string,
-): boolean {
-  return !!(
-    member &&
-    "roles" in member &&
-    (Array.isArray(member.roles)
-      ? member.roles.includes(roleId)
-      : (member.roles as { cache: Map<string, unknown> }).cache.has(roleId))
-  );
-}
 
 const TRAINING_TYPES: Record<string, { label: string; description: string; pingRole: string | null }> = {
   staff_training: {
@@ -399,12 +530,8 @@ const hostCommand = new SlashCommandBuilder()
     sub
       .setName("training")
       .setDescription("Announce a training session")
-      .addUserOption((o) =>
-        o.setName("host").setDescription("The host of the training").setRequired(true),
-      )
-      .addStringOption((o) =>
-        o.setName("time").setDescription('Starting time (e.g. "15 minutes")').setRequired(true),
-      )
+      .addUserOption((o) => o.setName("host").setDescription("The host of the training").setRequired(true))
+      .addStringOption((o) => o.setName("time").setDescription('Starting time (e.g. "15 minutes")').setRequired(true))
       .addStringOption((o) =>
         o
           .setName("type")
@@ -412,12 +539,8 @@ const hostCommand = new SlashCommandBuilder()
           .setRequired(true)
           .addChoices({ name: "Staff Training", value: "staff_training" }),
       )
-      .addUserOption((o) =>
-        o.setName("cohost").setDescription("The co-host of the training (optional)").setRequired(false),
-      ),
+      .addUserOption((o) => o.setName("cohost").setDescription("The co-host of the training (optional)").setRequired(false)),
   );
-
-// ─── Embed & button builders ──────────────────────────────────────────────────
 
 function buildTrainingEmbed(opts: {
   trainingId: string;
@@ -453,44 +576,19 @@ function buildTrainingEmbed(opts: {
     });
 }
 
-function buildTrainingRows(
-  status: "open" | "locked" | "ended",
-  trainingId: string,
-): ActionRowBuilder<ButtonBuilder>[] {
+function buildTrainingRows(status: "open" | "locked" | "ended", trainingId: string): ActionRowBuilder<ButtonBuilder>[] {
   const ended = status === "ended";
   const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`training_open_${trainingId}`)
-      .setLabel("Open")
-      .setStyle(ButtonStyle.Success)
-      .setDisabled(status === "open" || ended),
-    new ButtonBuilder()
-      .setCustomId(`training_lock_${trainingId}`)
-      .setLabel("Lock")
-      .setStyle(ButtonStyle.Primary)
-      .setDisabled(status === "locked" || ended),
-    new ButtonBuilder()
-      .setCustomId(`training_end_${trainingId}`)
-      .setLabel("End/Cancel")
-      .setStyle(ButtonStyle.Danger)
-      .setDisabled(ended),
+    new ButtonBuilder().setCustomId(`training_open_${trainingId}`).setLabel("Open").setStyle(ButtonStyle.Success).setDisabled(status === "open" || ended),
+    new ButtonBuilder().setCustomId(`training_lock_${trainingId}`).setLabel("Lock").setStyle(ButtonStyle.Primary).setDisabled(status === "locked" || ended),
+    new ButtonBuilder().setCustomId(`training_end_${trainingId}`).setLabel("End/Cancel").setStyle(ButtonStyle.Danger).setDisabled(ended),
   );
   const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`training_attend_${trainingId}`)
-      .setLabel("Attend")
-      .setStyle(ButtonStyle.Success)
-      .setDisabled(ended),
-    new ButtonBuilder()
-      .setCustomId(`training_viewattendees_${trainingId}`)
-      .setLabel("View Attendees")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(ended),
+    new ButtonBuilder().setCustomId(`training_attend_${trainingId}`).setLabel("Attend").setStyle(ButtonStyle.Success).setDisabled(ended),
+    new ButtonBuilder().setCustomId(`training_viewattendees_${trainingId}`).setLabel("View Attendees").setStyle(ButtonStyle.Secondary).setDisabled(ended),
   );
   return [row1, row2];
 }
-
-// ─── Command handler ──────────────────────────────────────────────────────────
 
 async function handleHostTraining(interaction: ChatInputCommandInteraction) {
   if (!memberHasRole(interaction.member, HOST_ALLOWED_ROLE_ID)) {
@@ -498,12 +596,12 @@ async function handleHostTraining(interaction: ChatInputCommandInteraction) {
     return;
   }
 
-  const host    = interaction.options.getUser("host", true);
-  const coHost  = interaction.options.getUser("cohost") ?? null;
-  const time    = interaction.options.getString("time", true);
-  const typeKey = interaction.options.getString("type", true);
-  const type    = TRAINING_TYPES[typeKey];
-  const issuer  = interaction.user;
+  const host      = interaction.options.getUser("host", true);
+  const coHost    = interaction.options.getUser("cohost") ?? null;
+  const time      = interaction.options.getString("time", true);
+  const typeKey   = interaction.options.getString("type", true);
+  const type      = TRAINING_TYPES[typeKey];
+  const issuer    = interaction.user;
   const trainingId = `TRN${generateCaseId()}`;
 
   await interaction.deferReply({ flags: 64 });
@@ -545,14 +643,11 @@ async function handleHostTraining(interaction: ChatInputCommandInteraction) {
   logger.info({ trainingId, hostId: host.id, time, typeKey, invoker: issuer.id }, "Training announced");
 }
 
-// ─── Button handler ───────────────────────────────────────────────────────────
-
 async function handleTrainingButton(interaction: ButtonInteraction) {
   const cid        = interaction.customId;
   const trainingId = cid.split("_").at(-1)!;
   const session    = trainingSessions.get(trainingId);
 
-  // ── Attend ────────────────────────────────────────────────────────────────
   if (cid.startsWith("training_attend_")) {
     if (!buttonMemberHasRole(interaction.member, TRAINING_PING_ROLE_ID)) {
       await interaction.reply({ content: "You do not have permission to mark yourself as attending.", flags: 64 });
@@ -571,7 +666,6 @@ async function handleTrainingButton(interaction: ButtonInteraction) {
     return;
   }
 
-  // ── View Attendees ────────────────────────────────────────────────────────
   if (cid.startsWith("training_viewattendees_")) {
     if (!session || session.attendees.size === 0) {
       await interaction.reply({ content: "No attendees yet.", flags: 64 });
@@ -582,7 +676,6 @@ async function handleTrainingButton(interaction: ButtonInteraction) {
     return;
   }
 
-  // ── Status buttons (Open / Lock / End/Cancel) ─────────────────────────────
   if (!buttonMemberHasRole(interaction.member, HOST_ALLOWED_ROLE_ID)) {
     await interaction.reply({ content: "You do not have permission to change the training status.", flags: 64 });
     return;
@@ -592,9 +685,7 @@ async function handleTrainingButton(interaction: ButtonInteraction) {
     cid.startsWith("training_open_") ? "open" :
     cid.startsWith("training_lock_") ? "locked" : "ended";
 
-  if (session) {
-    session.ended = status === "ended";
-  }
+  if (session) session.ended = status === "ended";
 
   const original = interaction.message.embeds[0];
   if (!original) {
@@ -602,12 +693,12 @@ async function handleTrainingButton(interaction: ButtonInteraction) {
     return;
   }
 
-  const hostField    = original.fields.find((f) => f.name === "Host")?.value ?? "-";
-  const coHostField  = original.fields.find((f) => f.name === "Co Host")?.value ?? "-";
-  const timeRaw      = original.fields.find((f) => f.name === "Starting Time")?.value ?? "In -";
-  const footer       = original.footer;
-  const description  = original.description ?? "";
-  const title        = original.title ?? "Training";
+  const hostField   = original.fields.find((f) => f.name === "Host")?.value ?? "-";
+  const coHostField = original.fields.find((f) => f.name === "Co Host")?.value ?? "-";
+  const timeRaw     = original.fields.find((f) => f.name === "Starting Time")?.value ?? "In -";
+  const footer      = original.footer;
+  const description = original.description ?? "";
+  const title       = original.title ?? "Training";
 
   const statusMap = {
     open:   { emoji: "🟢", label: "Open",           color: 0x2ecc71 as const },
@@ -627,9 +718,7 @@ async function handleTrainingButton(interaction: ButtonInteraction) {
       { name: "Status",        value: `${s.emoji} ${s.label}` },
     );
 
-  if (footer) {
-    updated.setFooter({ text: footer.text, iconURL: footer.iconURL ?? undefined });
-  }
+  if (footer) updated.setFooter({ text: footer.text, iconURL: footer.iconURL ?? undefined });
 
   await interaction.update({ embeds: [updated], components: buildTrainingRows(status, trainingId) });
   logger.info({ trainingId, status, invoker: interaction.user.id }, "Training status updated");
@@ -642,7 +731,14 @@ async function registerCommands() {
   try {
     logger.info("Registering Discord slash commands globally...");
     await rest.put(Routes.applicationCommands(applicationId!), {
-      body: [dmCommand.toJSON(), promoteCommand.toJSON(), infractCommand.toJSON(), nicknameCommand.toJSON(), hostCommand.toJSON()],
+      body: [
+        dmCommand.toJSON(),
+        promoteCommand.toJSON(),
+        infractCommand.toJSON(),
+        voidCommand.toJSON(),
+        nicknameCommand.toJSON(),
+        hostCommand.toJSON(),
+      ],
     });
     logger.info("Discord slash commands registered successfully.");
   } catch (err) {
@@ -658,7 +754,6 @@ export async function startBot() {
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
   });
 
-  // Prevent unhandled errors from crashing the process
   client.on("error", (err) => {
     logger.error({ err }, "Discord client error");
   });
@@ -671,9 +766,10 @@ export async function startBot() {
     try {
       if (interaction.isChatInputCommand()) {
         const sub = interaction.options.getSubcommand(false);
-        if (interaction.commandName === "dm") await handleDm(interaction);
-        else if (interaction.commandName === "promote") await handlePromote(interaction);
-        else if (interaction.commandName === "infract") await handleInfract(interaction);
+        if      (interaction.commandName === "dm")       await handleDm(interaction);
+        else if (interaction.commandName === "promote")  await handlePromote(interaction);
+        else if (interaction.commandName === "infract")  await handleInfract(interaction);
+        else if (interaction.commandName === "void")     await handleVoid(interaction);
         else if (interaction.commandName === "nickname") await handleNickname(interaction);
         else if (interaction.commandName === "host" && sub === "training") await handleHostTraining(interaction);
       } else if (interaction.isButton()) {
