@@ -25,38 +25,44 @@ const applicationId = process.env["DISCORD_APPLICATION_ID"];
 
 // ─── Role IDs ─────────────────────────────────────────────────────────────────
 
-const DM_ALLOWED_ROLE_ID            = "1488086630731616337";
-const PROMOTE_ALLOWED_ROLE_ID       = "1492711090595958805";
-const INFRACT_ALLOWED_ROLE_ID       = "1492711090595958805";
-const VOID_ALLOWED_ROLE_ID          = "1492711090595958805";
-const NICKNAME_ALLOWED_ROLE_ID      = "1489216408620630186";
-const HOST_ALLOWED_ROLE_ID          = "1492702143126437939";
-const SEND_APP_ALLOWED_ROLE_ID      = "1492502925409259650";
-const APP_REVIEWER_ROLE_ID          = "1493149484358828075";
-const TRAINING_PING_ROLE_ID         = "1492701877991899206";
+const DM_ALLOWED_ROLE_ID             = "1488086630731616337";
+const PROMOTE_ALLOWED_ROLE_ID        = "1492711090595958805";
+const INFRACT_ALLOWED_ROLE_ID        = "1492711090595958805";
+const VOID_ALLOWED_ROLE_ID           = "1492711090595958805";
+const NICKNAME_ALLOWED_ROLE_ID       = "1489216408620630186";
+const HOST_ALLOWED_ROLE_ID           = "1492702143126437939";
+const SEND_APP_ALLOWED_ROLE_ID       = "1492502925409259650";
+const APP_REVIEWER_ROLE_ID           = "1493149484358828075";
+const TRAINING_PING_ROLE_ID          = "1492701877991899206";
 
 // ─── Infraction role IDs ──────────────────────────────────────────────────────
 
-const STRIKE_1_ROLE_ID              = "1492511182488338463";
-const STRIKE_2_ROLE_ID              = "1492511315846103173";
-const STRIKE_3_ROLE_ID              = "1492511654519246848";
-const ACTIVITY_STRIKE_1_ROLE_ID     = "1492511490262175834";
-const ACTIVITY_STRIKE_2_ROLE_ID     = "1492511575532113940";
-const TERMINATION_ROLE_ID           = "1492709533926035506";
-const STAFF_BLACKLISTED_ROLE_ID     = "1492512488397344939";
+const STRIKE_1_ROLE_ID               = "1492511182488338463";
+const STRIKE_2_ROLE_ID               = "1492511315846103173";
+const STRIKE_3_ROLE_ID               = "1492511654519246848";
+const ACTIVITY_STRIKE_1_ROLE_ID      = "1492511490262175834";
+const ACTIVITY_STRIKE_2_ROLE_ID      = "1492511575532113940";
+const TERMINATION_ROLE_ID            = "1492709533926035506";
+const STAFF_BLACKLISTED_ROLE_ID      = "1492512488397344939";
 
 // ─── Channel IDs ──────────────────────────────────────────────────────────────
 
-const PROMOTION_CHANNEL_ID          = "1492700739921903776";
-const INFRACTION_CHANNEL_ID         = "1492700966292557968";
-const TRAINING_CHANNEL_ID           = "1492702523721777192";
-const APPLICATION_REVIEW_CHANNEL_ID = "1493149597625745448";
+const PROMOTION_CHANNEL_ID           = "1492700739921903776";
+const INFRACTION_CHANNEL_ID          = "1492700966292557968";
+const TRAINING_CHANNEL_ID            = "1492702523721777192";
+const APPLICATION_REVIEW_CHANNEL_ID  = "1493149597625745448";
 const APPLICATION_RESULTS_CHANNEL_ID = "1491749630218731701";
 
 if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
 if (!applicationId) throw new Error("DISCORD_APPLICATION_ID is required.");
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const ORANGE = 0xe67e22;
+const BLUE   = 0x5865f2;
+const GREEN  = 0x2ecc71;
+const RED    = 0xe74c3c;
+const GREY   = 0x95a5a6;
 
 function generateCaseId(): string {
   return `SM${Math.floor(1000 + Math.random() * 9000)}`;
@@ -74,8 +80,6 @@ function nowTimestamp(): string {
   const now = new Date();
   return now.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) + " " + now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
 }
-
-const DIVIDER = "─".repeat(40);
 
 // ─── /dm ──────────────────────────────────────────────────────────────────────
 
@@ -117,7 +121,7 @@ const promoteCommand = new SlashCommandBuilder()
   .setDescription("Issue a staff promotion")
   .addUserOption((o) => o.setName("user").setDescription("The user to promote").setRequired(true))
   .addRoleOption((o) => o.setName("role").setDescription("The role to promote them to").setRequired(true))
-  .addStringOption((o) => o.setName("zero_tolerance_policy").setDescription("Zero Tolerance Policy duration (min: 1 Week, max: 2 Weeks)").setRequired(true).addChoices({ name: "1 Week", value: "1 Week" }, { name: "2 Weeks", value: "2 Weeks" }))
+  .addStringOption((o) => o.setName("zero_tolerance_policy").setDescription("Zero Tolerance Policy duration").setRequired(true).addChoices({ name: "1 Week", value: "1 Week" }, { name: "2 Weeks", value: "2 Weeks" }))
   .addStringOption((o) => o.setName("reason").setDescription("Reason for the promotion").setRequired(false))
   .addStringOption((o) => o.setName("invite_url").setDescription("Invite link for the button (optional)").setRequired(false));
 
@@ -144,7 +148,7 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
   }
 
   const embed = new EmbedBuilder()
-    .setColor(0x5865f2)
+    .setColor(BLUE)
     .setAuthor({ name: `Promotion Issued by ${issuer.displayName ?? issuer.username}`, iconURL: issuer.displayAvatarURL() })
     .setTitle("Staff Promotion")
     .setThumbnail(guild?.iconURL() ?? null)
@@ -164,11 +168,10 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
     if (!channel?.isTextBased()) { await interaction.editReply({ content: "Promotion channel not found." }); return; }
     await channel.send({ content: `${targetUser} (@${targetUser.username})`, embeds: [embed], components });
     await interaction.editReply({ content: `Promotion posted in <#${PROMOTION_CHANNEL_ID}>.` });
-    logger.info({ promotedUserId: targetUser.id, caseId, invoker: issuer.id }, "Promotion issued");
   } catch (err) { logger.error({ err }, "Failed to send promotion embed"); await interaction.editReply({ content: "Failed to post promotion." }); return; }
 
   try {
-    await targetUser.send({ embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle("You Have Been Promoted!").addFields({ name: "Promoted To", value: `<@&${role.id}>` }, { name: "Reason", value: reason }, { name: "Zero Tolerance Policy", value: zeroTolerancePolicy }, { name: "Issued By", value: `${issuer} (@${issuer.username})` }).setFooter({ text: `Case ID: ${caseId} | ${timestamp}` }).setTimestamp()] });
+    await targetUser.send({ embeds: [new EmbedBuilder().setColor(BLUE).setTitle("You Have Been Promoted!").addFields({ name: "Promoted To", value: `<@&${role.id}>` }, { name: "Reason", value: reason }, { name: "Zero Tolerance Policy", value: zeroTolerancePolicy }, { name: "Issued By", value: `${issuer} (@${issuer.username})` }).setFooter({ text: `Case ID: ${caseId} | ${timestamp}` }).setTimestamp()] });
   } catch (err) { logger.warn({ err }, "Could not DM user about promotion"); }
 }
 
@@ -177,9 +180,9 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
 const INFRACTION_CONFIG: Record<string, { label: string; roleId: string; color: number; autoTerminate: boolean }> = {
   strike_1:          { label: "Strike 1",          roleId: STRIKE_1_ROLE_ID,          color: 0xf1c40f, autoTerminate: false },
   strike_2:          { label: "Strike 2",          roleId: STRIKE_2_ROLE_ID,          color: 0xe67e22, autoTerminate: false },
-  strike_3:          { label: "Strike 3",          roleId: STRIKE_3_ROLE_ID,          color: 0xe74c3c, autoTerminate: true  },
+  strike_3:          { label: "Strike 3",          roleId: STRIKE_3_ROLE_ID,          color: RED,      autoTerminate: true  },
   activity_strike_1: { label: "Activity Strike 1", roleId: ACTIVITY_STRIKE_1_ROLE_ID, color: 0xe67e22, autoTerminate: false },
-  activity_strike_2: { label: "Activity Strike 2", roleId: ACTIVITY_STRIKE_2_ROLE_ID, color: 0xe74c3c, autoTerminate: true  },
+  activity_strike_2: { label: "Activity Strike 2", roleId: ACTIVITY_STRIKE_2_ROLE_ID, color: RED,      autoTerminate: true  },
   termination:       { label: "Termination",       roleId: TERMINATION_ROLE_ID,       color: 0x992d22, autoTerminate: false },
   staff_blacklisted: { label: "Staff Blacklisted", roleId: STAFF_BLACKLISTED_ROLE_ID, color: 0x2c2f33, autoTerminate: false },
 };
@@ -223,22 +226,21 @@ async function handleInfract(interaction: ChatInputCommandInteraction) {
     } catch (err) { logger.warn({ err }, "Could not assign infraction role"); }
   }
 
-  const autoNote = config.autoTerminate ? "\n⚠️ **This infraction carries an AUTOMATIC TERMINATION.**" : "";
   const embed = new EmbedBuilder()
     .setColor(config.color as number)
     .setAuthor({ name: `Infraction Issued by ${issuer.displayName ?? issuer.username}`, iconURL: issuer.displayAvatarURL() })
     .setTitle(`Staff Infraction — ${config.label}`)
-    .setDescription(autoNote || null)
     .setThumbnail(guild?.iconURL() ?? null)
     .addFields({ name: "Infracted User", value: `${targetUser} (@${targetUser.username})` }, { name: "Infraction Type", value: config.label }, { name: "Reason", value: reason })
     .setFooter({ text: `Case ID: ${caseId} | ${timestamp}`, iconURL: issuer.displayAvatarURL() });
+
+  if (config.autoTerminate) embed.setDescription("⚠️ **This infraction carries an AUTOMATIC TERMINATION.**");
 
   try {
     const channel = await interaction.client.channels.fetch(INFRACTION_CHANNEL_ID);
     if (!channel?.isTextBased()) { await interaction.editReply({ content: "Infraction channel not found." }); return; }
     await channel.send({ content: `${targetUser} (@${targetUser.username})`, embeds: [embed] });
     await interaction.editReply({ content: `Infraction posted in <#${INFRACTION_CHANNEL_ID}>.` });
-    logger.info({ infractedUserId: targetUser.id, typeKey, caseId, invoker: issuer.id }, "Infraction issued");
   } catch (err) { logger.error({ err }, "Failed to send infraction embed"); await interaction.editReply({ content: "Failed to post infraction." }); return; }
 
   try {
@@ -277,7 +279,7 @@ async function handleVoid(interaction: ChatInputCommandInteraction) {
   const typeLabel  = type === "infraction" ? "Infraction" : "Promotion";
 
   const embed = new EmbedBuilder()
-    .setColor(0x95a5a6)
+    .setColor(GREY)
     .setAuthor({ name: `${typeLabel} Voided by ${issuer.displayName ?? issuer.username}`, iconURL: issuer.displayAvatarURL() })
     .setTitle(`⚪ ${typeLabel} VOIDED`)
     .setThumbnail(guild?.iconURL() ?? null)
@@ -292,7 +294,7 @@ async function handleVoid(interaction: ChatInputCommandInteraction) {
   } catch (err) { logger.error({ err }, "Failed to send void embed"); await interaction.editReply({ content: "Failed to post void notice." }); return; }
 
   try {
-    await targetUser.send({ embeds: [new EmbedBuilder().setColor(0x95a5a6).setTitle(`Your ${typeLabel} Has Been Voided`).addFields({ name: "Voided Case ID", value: caseId }, { name: "Reason", value: reason }, { name: "Voided By", value: `${issuer} (@${issuer.username})` }).setFooter({ text: `Void timestamp: ${timestamp}` }).setTimestamp()] });
+    await targetUser.send({ embeds: [new EmbedBuilder().setColor(GREY).setTitle(`Your ${typeLabel} Has Been Voided`).addFields({ name: "Voided Case ID", value: caseId }, { name: "Reason", value: reason }, { name: "Voided By", value: `${issuer} (@${issuer.username})` }).setFooter({ text: `Void timestamp: ${timestamp}` }).setTimestamp()] });
   } catch (err) { logger.warn({ err }, "Could not DM user about void"); }
 }
 
@@ -326,7 +328,7 @@ async function handleNickname(interaction: ChatInputCommandInteraction) {
   catch (err) { logger.error({ err }, "Failed to set nickname"); await interaction.editReply({ content: "Failed to change nickname. Check bot permissions." }); return; }
 
   const displayNew = newNickname ?? member.user.username;
-  try { await targetUser.send({ embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle("Your Nickname Has Been Changed").addFields({ name: "Previous Nickname", value: oldNickname }, { name: "New Nickname", value: displayNew }, { name: "Changed By", value: `${issuer} (@${issuer.username})` }).setTimestamp()] }); }
+  try { await targetUser.send({ embeds: [new EmbedBuilder().setColor(BLUE).setTitle("Your Nickname Has Been Changed").addFields({ name: "Previous Nickname", value: oldNickname }, { name: "New Nickname", value: displayNew }, { name: "Changed By", value: `${issuer} (@${issuer.username})` }).setTimestamp()] }); }
   catch (err) { logger.warn({ err }, "Could not DM user about nickname change"); }
 
   await interaction.editReply({ content: `Nickname updated: **${oldNickname}** → **${displayNew}**.` });
@@ -355,8 +357,8 @@ const hostCommand = new SlashCommandBuilder()
     .addUserOption((o) => o.setName("cohost").setDescription("The co-host (optional)").setRequired(false)));
 
 function buildTrainingEmbed(opts: { trainingId: string; hostMention: string; coHostMention: string; time: string; trainingType: string; description: string; status: "open" | "locked" | "ended"; issuerName: string; issuerAvatar: string }): EmbedBuilder {
-  const sm = { open: { e: "🟢", l: "Open", c: 0x2ecc71 }, locked: { e: "🔵", l: "Locked", c: 0x3498db }, ended: { e: "🔴", l: "Ended/Cancelled", c: 0xe74c3c } }[opts.status];
-  return new EmbedBuilder().setColor(sm.c as number).setTitle(opts.trainingType).setDescription(opts.description).addFields({ name: "Host", value: opts.hostMention }, { name: "Co Host", value: opts.coHostMention }, { name: "Starting Time", value: `In ${opts.time}` }, { name: "Status", value: `${sm.e} ${sm.l}` }).setFooter({ text: `Training ID: ${opts.trainingId} | Announced by ${opts.issuerName}`, iconURL: opts.issuerAvatar });
+  const sm = { open: { e: "🟢", l: "Open", c: GREEN }, locked: { e: "🔵", l: "Locked", c: BLUE }, ended: { e: "🔴", l: "Ended/Cancelled", c: RED } }[opts.status];
+  return new EmbedBuilder().setColor(sm.c).setTitle(opts.trainingType).setDescription(opts.description).addFields({ name: "Host", value: opts.hostMention }, { name: "Co Host", value: opts.coHostMention }, { name: "Starting Time", value: `In ${opts.time}` }, { name: "Status", value: `${sm.e} ${sm.l}` }).setFooter({ text: `Training ID: ${opts.trainingId} | Announced by ${opts.issuerName}`, iconURL: opts.issuerAvatar });
 }
 
 function buildTrainingRows(status: "open" | "locked" | "ended", trainingId: string): ActionRowBuilder<ButtonBuilder>[] {
@@ -396,9 +398,9 @@ async function handleHostTraining(interaction: ChatInputCommandInteraction) {
 }
 
 async function handleTrainingButton(interaction: ButtonInteraction) {
-  const cid = interaction.customId;
+  const cid        = interaction.customId;
   const trainingId = cid.split("_").at(-1)!;
-  const session = trainingSessions.get(trainingId);
+  const session    = trainingSessions.get(trainingId);
 
   if (cid.startsWith("training_attend_")) {
     if (!buttonMemberHasRole(interaction.member, TRAINING_PING_ROLE_ID)) { await interaction.reply({ content: "You do not have permission to mark yourself as attending.", flags: 64 }); return; }
@@ -423,8 +425,8 @@ async function handleTrainingButton(interaction: ButtonInteraction) {
   const original = interaction.message.embeds[0];
   if (!original) { await interaction.reply({ content: "Could not read the original embed.", flags: 64 }); return; }
 
-  const sm = { open: { e: "🟢", l: "Open", c: 0x2ecc71 }, locked: { e: "🔵", l: "Locked", c: 0x3498db }, ended: { e: "🔴", l: "Ended/Cancelled", c: 0xe74c3c } }[status];
-  const updated = new EmbedBuilder().setColor(sm.c as number).setTitle(original.title ?? "Training").setDescription(original.description ?? "").addFields(
+  const sm = { open: { e: "🟢", l: "Open", c: GREEN }, locked: { e: "🔵", l: "Locked", c: BLUE }, ended: { e: "🔴", l: "Ended/Cancelled", c: RED } }[status];
+  const updated = new EmbedBuilder().setColor(sm.c).setTitle(original.title ?? "Training").setDescription(original.description ?? "").addFields(
     { name: "Host",          value: original.fields.find((f) => f.name === "Host")?.value          ?? "-" },
     { name: "Co Host",       value: original.fields.find((f) => f.name === "Co Host")?.value       ?? "-" },
     { name: "Starting Time", value: original.fields.find((f) => f.name === "Starting Time")?.value ?? "In -" },
@@ -439,10 +441,16 @@ async function handleTrainingButton(interaction: ButtonInteraction) {
 const sendCommand = new SlashCommandBuilder()
   .setName("send")
   .setDescription("Send embeds to channels")
-  .addSubcommand((sub) => sub.setName("application").setDescription("Send the staff application embed to a channel").addStringOption((o) => o.setName("channel_id").setDescription("The channel ID to send the embed to").setRequired(true)));
+  .addSubcommand((sub) =>
+    sub.setName("application")
+      .setDescription("Send the staff application embed to a channel")
+      .addStringOption((o) => o.setName("channel_id").setDescription("The channel ID to send the embed to").setRequired(true)));
 
 async function handleSendApplication(interaction: ChatInputCommandInteraction) {
-  if (!memberHasRole(interaction.member, SEND_APP_ALLOWED_ROLE_ID)) { await interaction.reply({ content: "You do not have permission to use this command.", flags: 64 }); return; }
+  if (!memberHasRole(interaction.member, SEND_APP_ALLOWED_ROLE_ID)) {
+    await interaction.reply({ content: "You do not have permission to use this command.", flags: 64 });
+    return;
+  }
   const channelId = interaction.options.getString("channel_id", true);
   await interaction.deferReply({ flags: 64 });
 
@@ -451,8 +459,20 @@ async function handleSendApplication(interaction: ChatInputCommandInteraction) {
   catch { await interaction.editReply({ content: `Could not find channel with ID \`${channelId}\`.` }); return; }
   if (!targetChannel?.isTextBased()) { await interaction.editReply({ content: "That channel is not a text channel." }); return; }
 
-  const embed = new EmbedBuilder().setColor(0xe67e22).setTitle("🛡️ Staff Entry Application").setDescription("Join our evergrowing staff team and help moderate the server.");
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("app_learn_more").setLabel("Learn More & Apply").setStyle(ButtonStyle.Secondary).setEmoji("🎓"));
+  const embed = new EmbedBuilder()
+    .setColor(ORANGE)
+    .setTitle("📋 · Applications")
+    .setDescription(
+      "Welcome to our application center. In here, you'll find available staff applications.\n\n" +
+      "The staff team plays a key role in keeping the server organized, fair, and enjoyable for everyone. " +
+      "We handle reports, support players, and ensure rules are enforced consistently across the board.\n\n" +
+      "If you're mature, reliable, and want to help improve the experience for others, we encourage you to apply."
+    )
+    .setFooter({ text: "The button below will not start your application. You will only see applications you can access." });
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId("app_learn_more").setLabel("Learn More & Apply").setStyle(ButtonStyle.Secondary),
+  );
 
   await targetChannel.send({ embeds: [embed], components: [row] });
   await interaction.editReply({ content: `Application embed sent to <#${channelId}>.` });
@@ -468,36 +488,48 @@ const APP_STEPS: AppStep[] = [
   {
     type: "button", num: 1,
     title: "Acknowledge the following:",
-    body: "Failure to follow instructions, meet requirements, or answer honestly may result in automatic denial.\n\nTo confirm, press the button below. Otherwise, you can cancel your application.",
+    body:
+      "Failure to follow instructions, meet requirements, or answer honestly may result in automatic denial.\n\n" +
+      "To confirm, press the button below. Otherwise, you can cancel your application.",
     btnLabel: "I Acknowledge", btnId: "app_ack",
   },
   {
     type: "button", num: 2,
     title: "Do you agree to ALL of the following requirements?",
-    body: "• You will go on duty when requested while in-game.\n• You will handle discord checks between mod-calls to ensure all members are in our communications without complaining.\n• You will be active for a minimum of 3 hours per week, unless approved by management.\n• You will not abuse staff powers and will only moderate while on duty.\n• You own a working personal PC, laptop, or phone if you have 2 devices for Discord and Roblox separately, and will use it for staff duties.\n• You have been in the Discord server for at least 14 days.\n\nTo confirm, press the button below. Otherwise, you can cancel your application.",
+    body:
+      "• You will go on duty when requested while in-game.\n" +
+      "• You will handle discord checks between mod-calls to ensure all members are in our communications without complaining.\n" +
+      "• You will be active for a minimum of 3 hours per week, unless approved by management.\n" +
+      "• You will not abuse staff powers and will only moderate while on duty.\n" +
+      "• You own a working personal PC, laptop, or phone if you have 2 devices for Discord and Roblox separately, and will use it for staff duties.\n" +
+      "• You have been in the Discord server for at least 14 days.\n\n" +
+      "To confirm, press the button below. Otherwise, you can cancel your application.",
     btnLabel: "I Agree", btnId: "app_agree",
   },
-  { type: "text", num: 3,  title: "Are you 13 years old or older? (Yes / No)",                                           note: 'Answering "No" will result in automatic denial.',                                                                                                                                      autoDenyIfNo: true },
-  { type: "text", num: 4,  title: "What is your chat age group?",                                                         note: "Answer honestly. This does not affect acceptance." },
-  { type: "text", num: 5,  title: "State your full Roblox username.",                                                      note: "Do not use display names or shortened versions. (Example: SimonPipen08)" },
-  { type: "text", num: 6,  title: "Describe your experience within the server.",                                           note: 'List any departments or organisations you have been part of, your rank(s), and how long you served. If you have no experience, state "None."' },
-  { type: "text", num: 7,  title: "Do you have any prior moderation or staff experience?",                                 note: 'List the server name(s), approximate member count, position(s) held, and reason for leaving. If none, state "None."' },
-  { type: "text", num: 8,  title: "Why are you applying for a staff position?",                                            note: "Minimum: 2 complete sentences. Low-effort answers may be denied." },
-  { type: "text", num: 9,  title: "Why should we select you as a staff member?",                                          note: "Minimum: 2 complete sentences. Explain what you bring to the team." },
-  { type: "text", num: 10, title: 'Define "RDM."',                                                                        note: "State what it stands for, what it means, and when it applies." },
-  { type: "text", num: 11, title: 'Define "VDM."',                                                                        note: "State what it stands for, what it means, and when it applies." },
-  { type: "text", num: 12, title: 'Define "FRP."',                                                                        note: "State what it stands for, what it means, and when it applies." },
-  { type: "text", num: 13, title: 'Define "NITRP."',                                                                      note: "State what it stands for, what it means, and when it applies." },
-  { type: "text", num: 14, title: 'Define "GTA Driving."',                                                                note: "State what it stands for, what it means, and when it applies." },
-  { type: "text", num: 15, title: "Explain how you will handle the following scenario:",                                   note: "While off duty, you observe a player blocking PD spawn, trapping officers, and killing them. Explain exactly what actions you would take. Minimum: 3 complete sentences." },
+  { type: "text", num: 3,  title: "Are you 13 years old or older? (Yes / No)",                                note: 'Answering "No" will result in automatic denial.',                                                                                                                                                 autoDenyIfNo: true },
+  { type: "text", num: 4,  title: "What is your chat age group?",                                              note: "Answer honestly. This does not affect acceptance." },
+  { type: "text", num: 5,  title: "State your full Roblox username.",                                          note: "Do not use display names or shortened versions. (Example: SimonPipen08)" },
+  { type: "text", num: 6,  title: "Describe your experience within the server.",                               note: 'List any departments or organisations you have been part of, your rank(s), and how long you served. If you have no experience, state "None."' },
+  { type: "text", num: 7,  title: "Do you have any prior moderation or staff experience?",                     note: 'List the server name(s), approximate member count, position(s) held, and reason for leaving. If none, state "None."' },
+  { type: "text", num: 8,  title: "Why are you applying for a staff position?",                                note: "Minimum: 2 complete sentences. Low-effort answers may be denied." },
+  { type: "text", num: 9,  title: "Why should we select you as a staff member?",                               note: "Minimum: 2 complete sentences. Explain what you bring to the team." },
+  { type: "text", num: 10, title: 'Define "RDM."',                                                             note: "State what it stands for, what it means, and when it applies." },
+  { type: "text", num: 11, title: 'Define "VDM."',                                                             note: "State what it stands for, what it means, and when it applies." },
+  { type: "text", num: 12, title: 'Define "FRP."',                                                             note: "State what it stands for, what it means, and when it applies." },
+  { type: "text", num: 13, title: 'Define "NITRP."',                                                           note: "State what it stands for, what it means, and when it applies." },
+  { type: "text", num: 14, title: 'Define "GTA Driving."',                                                     note: "State what it stands for, what it means, and when it applies." },
+  { type: "text", num: 15, title: "Explain how you will handle the following scenario:",                        note: "While off duty, you observe a player blocking PD spawn, trapping officers, and killing them. Explain exactly what actions you would take. Minimum: 3 complete sentences." },
 ];
 
 const TOTAL_STEPS = APP_STEPS.length; // 15
 
+// Step value used to indicate the session is waiting for submit confirmation
+const STEP_CONFIRM = TOTAL_STEPS;
+
 interface ApplicationSession {
   userId: string;
-  step: number;               // 0-based index into APP_STEPS
-  textAnswers: string[];       // only text-step answers (steps 2-14)
+  step: number;           // 0-based index into APP_STEPS, or STEP_CONFIRM
+  textAnswers: string[];  // answers to text steps (steps 2–14, 13 answers)
   dmChannelId: string;
   timeoutId: ReturnType<typeof setTimeout>;
   appId: string;
@@ -513,11 +545,12 @@ interface PendingReview {
   reviewMessageId: string;
 }
 
-const applicationSessions = new Map<string, ApplicationSession>(); // keyed by userId
-const pendingReviews       = new Map<string, PendingReview>();      // keyed by appId
+const applicationSessions = new Map<string, ApplicationSession>();
+const pendingReviews       = new Map<string, PendingReview>();
 
-const APP_TIMEOUT_MS = 60 * 60 * 1000; // 60 minutes
+const APP_TIMEOUT_MS = 60 * 60 * 1000;
 
+// Sends the current step as an embed in DMs
 async function sendAppStep(session: ApplicationSession, client: Client) {
   const step = APP_STEPS[session.step];
   if (!step) return;
@@ -530,39 +563,71 @@ async function sendAppStep(session: ApplicationSession, client: Client) {
   } catch { return; }
 
   if (step.type === "button") {
-    const content = `**${step.num}/${TOTAL_STEPS} — ${step.title}**\n\n${step.body}`;
+    const embed = new EmbedBuilder()
+      .setColor(ORANGE)
+      .setTitle(`Step ${step.num} of ${TOTAL_STEPS}`)
+      .setDescription(`**${step.title}**\n\n${step.body}`);
+
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setCustomId(`${step.btnId}_${session.userId}`).setLabel(step.btnLabel).setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`app_cancel_${session.userId}`).setLabel("Cancel").setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`app_cancel_${session.userId}`).setLabel("Cancel Application").setStyle(ButtonStyle.Danger),
     );
-    await dmChannel.send({ content, components: [row] });
+    await dmChannel.send({ embeds: [embed], components: [row] });
   } else {
-    const content =
-      `**${step.num}/${TOTAL_STEPS} — ${step.title}**\n` +
-      `-# ${step.note}\n\n` +
-      `-# To answer, send a message in this DM. Your answer must have >0 characters. Make sure you read the question carefully.\n` +
-      `-# Type \`cancel\` to cancel your application.`;
-    await dmChannel.send({ content });
+    const embed = new EmbedBuilder()
+      .setColor(ORANGE)
+      .setTitle(`Question ${step.num} of ${TOTAL_STEPS}`)
+      .setDescription(`**${step.title}**\n\n*${step.note}*`)
+      .setFooter({ text: "Type your answer below. Type 'cancel' to cancel your application." });
+
+    await dmChannel.send({ embeds: [embed] });
   }
 }
 
+// Sends the submit confirmation embed
+async function sendSubmitConfirmation(session: ApplicationSession, client: Client) {
+  let dmChannel: TextBasedChannel;
+  try {
+    const ch = await client.channels.fetch(session.dmChannelId);
+    if (!ch?.isTextBased()) return;
+    dmChannel = ch as TextBasedChannel;
+  } catch { return; }
+
+  const embed = new EmbedBuilder()
+    .setColor(GREEN)
+    .setTitle("✅ All Questions Answered!")
+    .setDescription(
+      "You have answered all **15 questions**. Please review and confirm before submitting.\n\n" +
+      "**Once submitted, your application cannot be edited.**"
+    )
+    .addFields({ name: "⚠️ Are you ready to submit?", value: "Press **Submit Application** to send your application for review, or **Cancel** to discard it." })
+    .setFooter({ text: `App ID: ${session.appId}` });
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(`app_submit_confirm_${session.userId}`).setLabel("Submit Application").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`app_submit_cancel_${session.userId}`).setLabel("Cancel").setStyle(ButtonStyle.Danger),
+  );
+
+  await dmChannel.send({ embeds: [embed], components: [row] });
+}
+
+// Builds and posts the application to the review channel, DMs the applicant
 async function submitApplication(session: ApplicationSession, client: Client) {
   const appId     = session.appId;
   const applicant = await client.users.fetch(session.userId).catch(() => null);
   if (!applicant) return;
 
   const timestamp = nowTimestamp();
-
-  // Build review embed fields from all 13 text questions
   const textSteps = APP_STEPS.filter((s) => s.type === "text") as Extract<AppStep, { type: "text" }>[];
+
   const fields = textSteps.map((step, i) => ({
     name:  `Q${step.num}: ${step.title.substring(0, 200)}`,
     value: (session.textAnswers[i] ?? "No answer").substring(0, 1024),
   }));
 
   const reviewEmbed = new EmbedBuilder()
-    .setColor(0xe67e22)
-    .setTitle(`📋 New Staff Application`)
+    .setColor(ORANGE)
+    .setTitle("📋 New Staff Application")
     .setAuthor({ name: applicant.tag, iconURL: applicant.displayAvatarURL() })
     .setDescription(`**Applicant:** ${applicant} (@${applicant.username})\n**App ID:** \`${appId}\`\n**Submitted:** ${timestamp}`)
     .addFields(...fields.slice(0, 25))
@@ -577,128 +642,152 @@ async function submitApplication(session: ApplicationSession, client: Client) {
     const reviewChannel = await client.channels.fetch(APPLICATION_REVIEW_CHANNEL_ID);
     if (reviewChannel?.isTextBased()) {
       const reviewMsg = await reviewChannel.send({ embeds: [reviewEmbed], components: [reviewRow] });
-      pendingReviews.set(appId, {
-        appId,
-        applicantId:    applicant.id,
-        applicantTag:   applicant.tag,
-        applicantAvatar: applicant.displayAvatarURL(),
-        textAnswers:    session.textAnswers,
-        submittedAt:    timestamp,
-        reviewMessageId: reviewMsg.id,
-      });
-      // If >25 fields, send overflow
+      // Overflow if more than 25 fields
       if (fields.length > 25) {
-        const overflow = new EmbedBuilder().setColor(0xe67e22).setTitle(`📋 Application (cont.) — ${applicant.tag}`).addFields(...fields.slice(25));
+        const overflow = new EmbedBuilder().setColor(ORANGE).setTitle(`📋 Application (cont.) — ${applicant.tag}`).addFields(...fields.slice(25));
         await reviewChannel.send({ embeds: [overflow] });
       }
+      pendingReviews.set(appId, {
+        appId,
+        applicantId:     applicant.id,
+        applicantTag:    applicant.tag,
+        applicantAvatar: applicant.displayAvatarURL(),
+        textAnswers:     session.textAnswers,
+        submittedAt:     timestamp,
+        reviewMessageId: reviewMsg.id,
+      });
     }
   } catch (err) { logger.error({ err }, "Failed to post application to review channel"); }
 
   try {
-    await applicant.send({ embeds: [new EmbedBuilder().setColor(0xe67e22).setTitle("✅ Application Submitted!").setDescription("Thank you for applying! Your application is under review. You will be notified of the result.").setFooter({ text: `App ID: ${appId}` }).setTimestamp()] });
-  } catch (err) { logger.warn({ err }, "Could not DM applicant submission confirmation"); }
+    await applicant.send({ embeds: [new EmbedBuilder().setColor(GREEN).setTitle("✅ Application Submitted!").setDescription("Your application is now under review. You will be notified of the result via DM.").setFooter({ text: `App ID: ${appId}` }).setTimestamp()] });
+  } catch (err) { logger.warn({ err }, "Could not DM applicant confirmation"); }
 
   logger.info({ userId: applicant.id, appId }, "Application submitted for review");
 }
 
-// Learn More & Apply button
+// ── Learn More & Apply button ─────────────────────────────────────────────────
+
 async function handleLearnMore(interaction: ButtonInteraction) {
-  const content =
-    `🛡️ **Staff Application**\n` +
-    `-# Join our overgrowing staff team and help moderate the server.\n` +
-    `${DIVIDER}\n` +
-    `# **Before You Apply**\n` +
-    `You will have **60 MINUTES** to complete your application.\n` +
-    `-# Make sure you have enough time before starting.\n\n` +
-    `Some questions may have length requirements.\n` +
-    `-# Pay attention to **ALL** instructions.\n\n` +
-    `All answers must be written by **YOU.**\n` +
-    `-# The use of AI and/or copying others is strictly prohibited.\n\n` +
-    `Your answers must be **TRUTHFUL.**\n` +
-    `-# Applications with false information will be denied.\n\n` +
-    `You can always cancel your application.\n` +
-    `-# A record **MAY** be stored regardless.\n` +
-    `${DIVIDER}\n` +
-    `⚠️ Make sure you have finished reading everything above. If you don't meet any of the requirements, your application will be **instantly denied.**`;
+  const embed = new EmbedBuilder()
+    .setColor(ORANGE)
+    .setTitle("🛡️ Before You Apply")
+    .setDescription("Please read all the information below carefully before starting your application.")
+    .addFields(
+      { name: "⏱️ Time Limit",       value: "You have **60 minutes** to complete your application. Make sure you have enough time before starting." },
+      { name: "📋 Length Requirements", value: "Some questions have minimum length requirements. Pay close attention to **all** instructions." },
+      { name: "✍️ Your Own Work",     value: "All answers must be written by **you**. The use of AI or copying others is strictly prohibited." },
+      { name: "✅ Honesty",           value: "Your answers must be **truthful**. Applications with false information will be denied." },
+      { name: "❌ Cancellation",      value: "You can cancel your application at any time. A record **may** be stored regardless." },
+    )
+    .setFooter({ text: "If you don't meet any of the requirements, your application will be instantly denied." });
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId("app_apply_now").setLabel("Apply Now").setStyle(ButtonStyle.Secondary).setEmoji("🎓"),
+    new ButtonBuilder().setCustomId("app_apply_now").setLabel("Apply Now").setStyle(ButtonStyle.Success),
   );
-  await interaction.reply({ content, components: [row], flags: 64 });
+
+  await interaction.reply({ embeds: [embed], components: [row], flags: 64 });
 }
 
-// Apply Now button
+// ── Apply Now button ──────────────────────────────────────────────────────────
+
 async function handleApplyNow(interaction: ButtonInteraction) {
   const userId = interaction.user.id;
 
   if (applicationSessions.has(userId)) {
-    await interaction.reply({ content: "You already have an active application in progress. Please finish or wait for it to expire.", flags: 64 });
+    await interaction.reply({ embeds: [new EmbedBuilder().setColor(RED).setTitle("Active Application Found").setDescription("You already have an active application in progress. Please finish it or wait for it to expire.")], flags: 64 });
     return;
   }
 
-  await interaction.reply({ content: "✅ Check your DMs! Your application has started. You have **60 minutes** to complete it.", flags: 64 });
+  await interaction.reply({ embeds: [new EmbedBuilder().setColor(GREEN).setTitle("Application Started!").setDescription("Check your **DMs** — your application has been sent. You have **60 minutes** to complete it.")], flags: 64 });
 
   let dmChannel: TextBasedChannel;
   try {
     dmChannel = await interaction.user.createDM();
-    await dmChannel.send(`👋 Welcome to the **Staff Application**! You have **60 minutes** to complete it.\n\nType \`cancel\` at any time to cancel.\n${DIVIDER}`);
+    await dmChannel.send({ embeds: [new EmbedBuilder().setColor(ORANGE).setTitle("👋 Welcome to the Staff Application").setDescription("You have **60 minutes** to complete all 15 steps.\n\nType `cancel` in any text step to cancel your application.")] });
   } catch {
-    await interaction.followUp({ content: "❌ I couldn't DM you. Please enable DMs from server members and try again.", flags: 64 });
+    await interaction.followUp({ embeds: [new EmbedBuilder().setColor(RED).setTitle("Could Not Send DM").setDescription("I couldn't DM you. Please enable **Direct Messages** from server members and try again.")], flags: 64 });
     return;
   }
 
-  const appId = generateCaseId();
+  const appId     = generateCaseId();
   const timeoutId = setTimeout(async () => {
     applicationSessions.delete(userId);
-    try { await dmChannel.send(`⏰ **Your application has expired.** The 60-minute time limit has been reached. You may start a new application at any time.`); } catch { /* user closed DMs */ }
+    try { await dmChannel.send({ embeds: [new EmbedBuilder().setColor(RED).setTitle("⏰ Application Expired").setDescription("Your 60-minute time limit has been reached. You may start a new application at any time.").setFooter({ text: `App ID: ${appId}` })] }); } catch { /* DMs closed */ }
     logger.info({ userId }, "Application expired");
   }, APP_TIMEOUT_MS);
 
   const session: ApplicationSession = { userId, step: 0, textAnswers: [], dmChannelId: dmChannel.id, timeoutId, appId };
   applicationSessions.set(userId, session);
-
   await sendAppStep(session, interaction.client);
   logger.info({ userId, appId }, "Application started");
 }
 
-// I Acknowledge button
-async function handleAppAck(interaction: ButtonInteraction) {
-  const userId = interaction.customId.replace("app_ack_", "");
-  const session = applicationSessions.get(userId);
+// ── I Acknowledge button ──────────────────────────────────────────────────────
 
-  if (!session) { await interaction.update({ components: [] }); await interaction.followUp({ content: "Your application session has expired.", flags: 64 }); return; }
+async function handleAppAck(interaction: ButtonInteraction) {
+  const userId  = interaction.customId.replace("app_ack_", "");
+  const session = applicationSessions.get(userId);
+  if (!session) { await interaction.update({ components: [] }); await interaction.followUp({ embeds: [new EmbedBuilder().setColor(RED).setTitle("Session Expired").setDescription("Your application session has expired.")], flags: 64 }); return; }
   await interaction.update({ components: [] });
   session.step = 1;
   await sendAppStep(session, interaction.client);
 }
 
-// I Agree button
-async function handleAppAgree(interaction: ButtonInteraction) {
-  const userId = interaction.customId.replace("app_agree_", "");
-  const session = applicationSessions.get(userId);
+// ── I Agree button ────────────────────────────────────────────────────────────
 
-  if (!session) { await interaction.update({ components: [] }); await interaction.followUp({ content: "Your application session has expired.", flags: 64 }); return; }
+async function handleAppAgree(interaction: ButtonInteraction) {
+  const userId  = interaction.customId.replace("app_agree_", "");
+  const session = applicationSessions.get(userId);
+  if (!session) { await interaction.update({ components: [] }); await interaction.followUp({ embeds: [new EmbedBuilder().setColor(RED).setTitle("Session Expired").setDescription("Your application session has expired.")], flags: 64 }); return; }
   await interaction.update({ components: [] });
   session.step = 2;
   await sendAppStep(session, interaction.client);
 }
 
-// Cancel button (on button steps)
-async function handleAppCancelButton(interaction: ButtonInteraction) {
-  const userId = interaction.customId.replace("app_cancel_", "");
-  const session = applicationSessions.get(userId);
+// ── Cancel button (on button steps) ──────────────────────────────────────────
 
+async function handleAppCancelButton(interaction: ButtonInteraction) {
+  const userId  = interaction.customId.replace("app_cancel_", "");
+  const session = applicationSessions.get(userId);
   if (!session) { await interaction.update({ components: [] }); return; }
   clearTimeout(session.timeoutId);
   applicationSessions.delete(userId);
   await interaction.update({ components: [] });
-  await interaction.followUp({ content: "❌ Your application has been **cancelled**. You may start a new one at any time." });
+  await interaction.followUp({ embeds: [new EmbedBuilder().setColor(RED).setTitle("❌ Application Cancelled").setDescription("Your application has been cancelled. You may start a new one at any time.")] });
 }
 
-// Accept button on review embed
+// ── Submit Confirm button ─────────────────────────────────────────────────────
+
+async function handleAppSubmitConfirm(interaction: ButtonInteraction) {
+  const userId  = interaction.customId.replace("app_submit_confirm_", "");
+  const session = applicationSessions.get(userId);
+  if (!session) { await interaction.update({ components: [] }); await interaction.followUp({ embeds: [new EmbedBuilder().setColor(RED).setTitle("Session Expired").setDescription("Your application session has expired.")], flags: 64 }); return; }
+
+  clearTimeout(session.timeoutId);
+  applicationSessions.delete(userId);
+  await interaction.update({ components: [] });
+  await interaction.followUp({ embeds: [new EmbedBuilder().setColor(GREEN).setTitle("Submitting...").setDescription("Your application is being submitted. Please wait.")] });
+  await submitApplication(session, interaction.client);
+}
+
+// ── Submit Cancel button ──────────────────────────────────────────────────────
+
+async function handleAppSubmitCancel(interaction: ButtonInteraction) {
+  const userId  = interaction.customId.replace("app_submit_cancel_", "");
+  const session = applicationSessions.get(userId);
+  if (!session) { await interaction.update({ components: [] }); return; }
+  clearTimeout(session.timeoutId);
+  applicationSessions.delete(userId);
+  await interaction.update({ components: [] });
+  await interaction.followUp({ embeds: [new EmbedBuilder().setColor(RED).setTitle("❌ Application Cancelled").setDescription("Your application has been cancelled. You may start a new one at any time.")] });
+}
+
+// ── Accept button on review embed ─────────────────────────────────────────────
+
 async function handleAppAccept(interaction: ButtonInteraction, appId: string) {
   if (!buttonMemberHasRole(interaction.member, APP_REVIEWER_ROLE_ID)) {
-    await interaction.reply({ content: "You do not have permission to review applications.", flags: 64 });
+    await interaction.reply({ embeds: [new EmbedBuilder().setColor(RED).setTitle("No Permission").setDescription("You do not have permission to review applications.")], flags: 64 });
     return;
   }
   const modal = new ModalBuilder().setCustomId(`app_modal_accept_${appId}`).setTitle("Accept Application");
@@ -708,10 +797,11 @@ async function handleAppAccept(interaction: ButtonInteraction, appId: string) {
   await interaction.showModal(modal);
 }
 
-// Deny button on review embed
+// ── Deny button on review embed ───────────────────────────────────────────────
+
 async function handleAppDeny(interaction: ButtonInteraction, appId: string) {
   if (!buttonMemberHasRole(interaction.member, APP_REVIEWER_ROLE_ID)) {
-    await interaction.reply({ content: "You do not have permission to review applications.", flags: 64 });
+    await interaction.reply({ embeds: [new EmbedBuilder().setColor(RED).setTitle("No Permission").setDescription("You do not have permission to review applications.")], flags: 64 });
     return;
   }
   const modal = new ModalBuilder().setCustomId(`app_modal_deny_${appId}`).setTitle("Deny Application");
@@ -721,34 +811,38 @@ async function handleAppDeny(interaction: ButtonInteraction, appId: string) {
   await interaction.showModal(modal);
 }
 
-// Modal submit — accept or deny
+// ── Modal submit — accept or deny ─────────────────────────────────────────────
+
 async function handleAppModalSubmit(interaction: ModalSubmitInteraction, action: "accept" | "deny", appId: string) {
-  const feedback   = interaction.fields.getTextInputValue("feedback");
-  const review     = pendingReviews.get(appId);
-  const reviewer   = interaction.user;
-  const timestamp  = nowTimestamp();
+  const feedback  = interaction.fields.getTextInputValue("feedback");
+  const review    = pendingReviews.get(appId);
+  const reviewer  = interaction.user;
+  const timestamp = nowTimestamp();
 
   if (!review) {
-    await interaction.reply({ content: "This application could not be found. It may have already been reviewed.", flags: 64 });
+    await interaction.reply({ embeds: [new EmbedBuilder().setColor(RED).setTitle("Not Found").setDescription("This application could not be found. It may have already been reviewed.")], flags: 64 });
     return;
   }
 
   await interaction.deferReply({ flags: 64 });
 
   const accepted = action === "accept";
-  const color    = accepted ? 0x2ecc71 : 0xe74c3c;
+  const color    = accepted ? GREEN : RED;
   const label    = accepted ? "✅ ACCEPTED" : "❌ DENIED";
 
-  // Disable buttons on review message
+  // Disable buttons on original review message
   try {
     const reviewChannel = await interaction.client.channels.fetch(APPLICATION_REVIEW_CHANNEL_ID);
     if (reviewChannel?.isTextBased()) {
       const reviewMsg = await (reviewChannel as any).messages.fetch(review.reviewMessageId);
-      const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId("app_accept_done").setLabel("Accept").setStyle(ButtonStyle.Success).setDisabled(true),
-        new ButtonBuilder().setCustomId("app_deny_done").setLabel("Deny").setStyle(ButtonStyle.Danger).setDisabled(true),
-      );
-      await reviewMsg.edit({ components: [disabledRow] });
+      await reviewMsg.edit({
+        components: [
+          new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setCustomId("app_accept_done").setLabel("Accept").setStyle(ButtonStyle.Success).setDisabled(true),
+            new ButtonBuilder().setCustomId("app_deny_done").setLabel("Deny").setStyle(ButtonStyle.Danger).setDisabled(true),
+          ),
+        ],
+      });
     }
   } catch (err) { logger.warn({ err }, "Could not disable review message buttons"); }
 
@@ -758,9 +852,9 @@ async function handleAppModalSubmit(interaction: ModalSubmitInteraction, action:
     .setTitle(`Staff Application — ${label}`)
     .setAuthor({ name: review.applicantTag, iconURL: review.applicantAvatar })
     .addFields(
-      { name: "Applicant", value: `<@${review.applicantId}> (@${review.applicantTag})` },
-      { name: "Decision", value: label },
-      { name: "Feedback", value: feedback },
+      { name: "Applicant",   value: `<@${review.applicantId}> (@${review.applicantTag})` },
+      { name: "Decision",    value: label },
+      { name: "Feedback",    value: feedback },
       { name: "Reviewed By", value: `${reviewer} (@${reviewer.username})` },
     )
     .setFooter({ text: `App ID: ${appId} | Reviewed at ${timestamp}` })
@@ -780,34 +874,38 @@ async function handleAppModalSubmit(interaction: ModalSubmitInteraction, action:
   } catch (err) { logger.warn({ err }, "Could not DM applicant about result"); }
 
   pendingReviews.delete(appId);
-  await interaction.editReply({ content: `Application \`${appId}\` has been **${accepted ? "accepted" : "denied"}**. Result posted and applicant notified.` });
+  await interaction.editReply({ embeds: [new EmbedBuilder().setColor(color).setTitle("Done").setDescription(`Application \`${appId}\` has been **${accepted ? "accepted" : "denied"}**. Result posted and applicant notified.`)] });
   logger.info({ appId, action, reviewer: reviewer.id }, "Application reviewed");
 }
 
-// DM reply handler for active applications
+// ── DM reply handler ──────────────────────────────────────────────────────────
+
 async function handleApplicationDm(message: Message, client: Client) {
   const userId  = message.author.id;
   const session = applicationSessions.get(userId);
   if (!session) return;
 
-  const currentStep = APP_STEPS[session.step];
-  if (!currentStep || currentStep.type !== "text") return; // waiting for button, not text
+  // If waiting for confirmation button, ignore text
+  if (session.step >= STEP_CONFIRM) return;
 
-  // Cancel
+  const currentStep = APP_STEPS[session.step];
+  if (!currentStep || currentStep.type !== "text") return;
+
+  // Cancel command
   if (message.content.trim().toLowerCase() === "cancel") {
     clearTimeout(session.timeoutId);
     applicationSessions.delete(userId);
-    await message.reply("❌ Your application has been **cancelled**. You may start a new one at any time.");
+    await message.channel.send({ embeds: [new EmbedBuilder().setColor(RED).setTitle("❌ Application Cancelled").setDescription("Your application has been cancelled. You may start a new one at any time.")] });
     return;
   }
 
   const textIndex = session.step - 2; // steps 0,1 are buttons; text starts at step 2
 
-  // Auto-deny on Q3 "no"
+  // Auto-deny Q3 if "no"
   if (currentStep.autoDenyIfNo && message.content.trim().toLowerCase() === "no") {
     clearTimeout(session.timeoutId);
     applicationSessions.delete(userId);
-    await message.reply("❌ Your application has been **automatically denied** as you do not meet the minimum age requirement.");
+    await message.channel.send({ embeds: [new EmbedBuilder().setColor(RED).setTitle("❌ Application Automatically Denied").setDescription("Your application has been automatically denied as you do not meet the minimum age requirement.")] });
     return;
   }
 
@@ -815,28 +913,28 @@ async function handleApplicationDm(message: Message, client: Client) {
   session.step++;
 
   if (session.step >= TOTAL_STEPS) {
-    // All steps done — submit
-    clearTimeout(session.timeoutId);
-    applicationSessions.delete(userId);
-    await message.reply(`✅ That's all the questions! Submitting your application now...`);
-    await submitApplication(session, client);
+    // All text questions done — move to confirmation step
+    session.step = STEP_CONFIRM;
+    await sendSubmitConfirmation(session, client);
   } else {
     await sendAppStep(session, client);
   }
 }
 
-// ─── Registration & client ────────────────────────────────────────────────────
+// ─── Registration ─────────────────────────────────────────────────────────────
 
 async function registerCommands() {
   const rest = new REST({ version: "10" }).setToken(token!);
   try {
     logger.info("Registering Discord slash commands globally...");
     await rest.put(Routes.applicationCommands(applicationId!), {
-      body: [dmCommand.toJSON(), promoteCommand.toJSON(), infractCommand.toJSON(), voidCommand.toJSON(), nicknameCommand.toJSON(), hostCommand.toJSON(), sendCommand.toJSON()],
+      body: [dmCommand, promoteCommand, infractCommand, voidCommand, nicknameCommand, hostCommand, sendCommand].map((c) => c.toJSON()),
     });
     logger.info("Discord slash commands registered successfully.");
   } catch (err) { logger.error({ err }, "Failed to register Discord slash commands"); throw err; }
 }
+
+// ─── Bot entry point ──────────────────────────────────────────────────────────
 
 export async function startBot() {
   await registerCommands();
@@ -853,7 +951,6 @@ export async function startBot() {
   client.on("error", (err) => { logger.error({ err }, "Discord client error"); });
   client.once("ready", (c) => { logger.info({ tag: c.user.tag }, "Discord bot is online"); });
 
-  // Handle DM replies for active applications
   client.on("messageCreate", async (message: Message) => {
     if (message.author.bot) return;
     if (message.channel.type !== ChannelType.DM) return;
@@ -879,24 +976,24 @@ export async function startBot() {
       // ── Buttons ───────────────────────────────────────────────────────────
       else if (interaction.isButton()) {
         const cid = interaction.customId;
-
-        if (cid === "app_learn_more")           await handleLearnMore(interaction);
-        else if (cid === "app_apply_now")        await handleApplyNow(interaction);
-        else if (cid.startsWith("app_ack_"))     await handleAppAck(interaction);
-        else if (cid.startsWith("app_agree_"))   await handleAppAgree(interaction);
-        else if (cid.startsWith("app_cancel_"))  await handleAppCancelButton(interaction);
-        else if (cid.startsWith("app_accept_") && !cid.endsWith("done")) await handleAppAccept(interaction, cid.replace("app_accept_", ""));
-        else if (cid.startsWith("app_deny_")   && !cid.endsWith("done")) await handleAppDeny(interaction, cid.replace("app_deny_", ""));
-        else if (cid.startsWith("training_"))   await handleTrainingButton(interaction);
+        if      (cid === "app_learn_more")                                      await handleLearnMore(interaction);
+        else if (cid === "app_apply_now")                                       await handleApplyNow(interaction);
+        else if (cid.startsWith("app_ack_"))                                    await handleAppAck(interaction);
+        else if (cid.startsWith("app_agree_"))                                  await handleAppAgree(interaction);
+        else if (cid.startsWith("app_cancel_"))                                 await handleAppCancelButton(interaction);
+        else if (cid.startsWith("app_submit_confirm_"))                         await handleAppSubmitConfirm(interaction);
+        else if (cid.startsWith("app_submit_cancel_"))                          await handleAppSubmitCancel(interaction);
+        else if (cid.startsWith("app_accept_") && !cid.endsWith("_done"))      await handleAppAccept(interaction, cid.replace("app_accept_", ""));
+        else if (cid.startsWith("app_deny_")   && !cid.endsWith("_done"))      await handleAppDeny(interaction, cid.replace("app_deny_", ""));
+        else if (cid.startsWith("training_"))                                   await handleTrainingButton(interaction);
       }
 
       // ── Modal submits ─────────────────────────────────────────────────────
       else if (interaction.isModalSubmit()) {
         const mid = interaction.customId;
-        if (mid.startsWith("app_modal_accept_")) await handleAppModalSubmit(interaction, "accept", mid.replace("app_modal_accept_", ""));
-        else if (mid.startsWith("app_modal_deny_")) await handleAppModalSubmit(interaction, "deny", mid.replace("app_modal_deny_", ""));
+        if      (mid.startsWith("app_modal_accept_")) await handleAppModalSubmit(interaction, "accept", mid.replace("app_modal_accept_", ""));
+        else if (mid.startsWith("app_modal_deny_"))   await handleAppModalSubmit(interaction, "deny",   mid.replace("app_modal_deny_", ""));
       }
-
     } catch (err) { logger.error({ err }, "Error handling interaction"); }
   });
 
