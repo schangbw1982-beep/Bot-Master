@@ -10,6 +10,8 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ActionRowBuilder,
+  ChannelType,
+  Message,
 } from "discord.js";
 import { logger } from "./lib/logger";
 
@@ -18,29 +20,40 @@ const applicationId = process.env["DISCORD_APPLICATION_ID"];
 
 // ─── Role IDs ─────────────────────────────────────────────────────────────────
 
-const DM_ALLOWED_ROLE_ID          = "1488086630731616337";
-const PROMOTE_ALLOWED_ROLE_ID     = "1492711090595958805"; // update if a different role should promote
-const INFRACT_ALLOWED_ROLE_ID     = "1492711090595958805"; // update if a different role should infract
-const VOID_ALLOWED_ROLE_ID        = "1492711090595958805";
-const NICKNAME_ALLOWED_ROLE_ID    = "1489216408620630186";
-const HOST_ALLOWED_ROLE_ID        = "1492702143126437939";
+const DM_ALLOWED_ROLE_ID           = "1488086630731616337";
+const PROMOTE_ALLOWED_ROLE_ID      = "1492711090595958805";
+const INFRACT_ALLOWED_ROLE_ID      = "1492711090595958805";
+const VOID_ALLOWED_ROLE_ID         = "1492711090595958805";
+const NICKNAME_ALLOWED_ROLE_ID     = "1489216408620630186";
+const HOST_ALLOWED_ROLE_ID         = "1492702143126437939";
+const SEND_APP_ALLOWED_ROLE_ID     = "1492502925409259650";
+const TRAINING_PING_ROLE_ID        = "1492701877991899206";
 
 // ─── Infraction role IDs ──────────────────────────────────────────────────────
 
-const STRIKE_1_ROLE_ID            = "1492511182488338463";
-const STRIKE_2_ROLE_ID            = "1492511315846103173";
-const STRIKE_3_ROLE_ID            = "1492511654519246848";
-const ACTIVITY_STRIKE_1_ROLE_ID   = "1492511490262175834";
-const ACTIVITY_STRIKE_2_ROLE_ID   = "1492511575532113940";
-const TERMINATION_ROLE_ID         = "1492709533926035506";
-const STAFF_BLACKLISTED_ROLE_ID   = "1492512488397344939";
+const STRIKE_1_ROLE_ID             = "1492511182488338463";
+const STRIKE_2_ROLE_ID             = "1492511315846103173";
+const STRIKE_3_ROLE_ID             = "1492511654519246848";
+const ACTIVITY_STRIKE_1_ROLE_ID    = "1492511490262175834";
+const ACTIVITY_STRIKE_2_ROLE_ID    = "1492511575532113940";
+const TERMINATION_ROLE_ID          = "1492709533926035506";
+const STAFF_BLACKLISTED_ROLE_ID    = "1492512488397344939";
 
-// ─── Channel IDs ─────────────────────────────────────────────────────────────
+// ─── Channel IDs ──────────────────────────────────────────────────────────────
 
-const PROMOTION_CHANNEL_ID   = "1492700739921903776";
-const INFRACTION_CHANNEL_ID  = "1492700966292557968";
-const TRAINING_CHANNEL_ID    = "1492702523721777192";
-const TRAINING_PING_ROLE_ID  = "1492701877991899206";
+const PROMOTION_CHANNEL_ID          = "1492700739921903776";
+const INFRACTION_CHANNEL_ID         = "1492700966292557968";
+const TRAINING_CHANNEL_ID           = "1492702523721777192";
+const APPLICATION_REVIEW_CHANNEL_ID = "REPLACE_WITH_REVIEW_CHANNEL_ID"; // TODO: provide the channel ID where completed applications should be sent
+
+// ─── Application questions ────────────────────────────────────────────────────
+// TODO: Replace these with your actual application questions
+
+const APPLICATION_QUESTIONS: string[] = [
+  "Question 1 — Replace this with your actual question.",
+  "Question 2 — Replace this with your actual question.",
+  "Question 3 — Replace this with your actual question.",
+];
 
 if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
 if (!applicationId) throw new Error("DISCORD_APPLICATION_ID is required.");
@@ -48,7 +61,8 @@ if (!applicationId) throw new Error("DISCORD_APPLICATION_ID is required.");
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function generateCaseId(): string {
-  return Math.random().toString(36).substring(2, 7).toUpperCase();
+  const digits = Math.floor(1000 + Math.random() * 9000).toString();
+  return `SM${digits}`;
 }
 
 function memberHasRole(member: ChatInputCommandInteraction["member"], roleId: string): boolean {
@@ -79,6 +93,8 @@ function nowTimestamp(): string {
     now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })
   );
 }
+
+const DIVIDER = "─".repeat(40);
 
 // ─── /dm ──────────────────────────────────────────────────────────────────────
 
@@ -132,6 +148,16 @@ const promoteCommand = new SlashCommandBuilder()
   .setDescription("Issue a staff promotion")
   .addUserOption((o) => o.setName("user").setDescription("The user to promote").setRequired(true))
   .addRoleOption((o) => o.setName("role").setDescription("The role to promote them to").setRequired(true))
+  .addStringOption((o) =>
+    o
+      .setName("zero_tolerance_policy")
+      .setDescription("Zero Tolerance Policy duration (min: 1 Week, max: 2 Weeks)")
+      .setRequired(true)
+      .addChoices(
+        { name: "1 Week",  value: "1 Week"  },
+        { name: "2 Weeks", value: "2 Weeks" },
+      ),
+  )
   .addStringOption((o) => o.setName("reason").setDescription("Reason for the promotion").setRequired(false))
   .addStringOption((o) => o.setName("invite_url").setDescription("Invite link for the button (optional)").setRequired(false));
 
@@ -141,14 +167,15 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
     return;
   }
 
-  const targetUser = interaction.options.getUser("user", true);
-  const role = interaction.options.getRole("role", true);
-  const reason = interaction.options.getString("reason") ?? "No reason provided.";
-  const inviteUrl = interaction.options.getString("invite_url") ?? null;
-  const issuer = interaction.user;
-  const guild = interaction.guild;
-  const caseId = generateCaseId();
-  const timestamp = nowTimestamp();
+  const targetUser           = interaction.options.getUser("user", true);
+  const role                 = interaction.options.getRole("role", true);
+  const zeroTolerancePolicy  = interaction.options.getString("zero_tolerance_policy", true);
+  const reason               = interaction.options.getString("reason") ?? "No reason provided.";
+  const inviteUrl            = interaction.options.getString("invite_url") ?? null;
+  const issuer               = interaction.user;
+  const guild                = interaction.guild;
+  const caseId               = generateCaseId();
+  const timestamp            = nowTimestamp();
 
   await interaction.deferReply({ flags: 64 });
 
@@ -167,9 +194,10 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
     .setTitle("Staff Promotion")
     .setThumbnail(guild?.iconURL() ?? null)
     .addFields(
-      { name: "Promoted User", value: `${targetUser} (@${targetUser.username})` },
-      { name: "Promoted To", value: `<@&${role.id}>` },
-      { name: "Reason", value: reason },
+      { name: "Promoted User",        value: `${targetUser} (@${targetUser.username})` },
+      { name: "Promoted To",          value: `<@&${role.id}>` },
+      { name: "Reason",               value: reason },
+      { name: "Zero Tolerance Policy", value: zeroTolerancePolicy },
     )
     .setFooter({ text: `Case ID: ${caseId} | ${timestamp}`, iconURL: issuer.displayAvatarURL() });
 
@@ -204,9 +232,10 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
           .setColor(0x5865f2)
           .setTitle("You Have Been Promoted!")
           .addFields(
-            { name: "Promoted To", value: `<@&${role.id}>` },
-            { name: "Reason", value: reason },
-            { name: "Issued By", value: `${issuer} (@${issuer.username})` },
+            { name: "Promoted To",          value: `<@&${role.id}>` },
+            { name: "Reason",               value: reason },
+            { name: "Zero Tolerance Policy", value: zeroTolerancePolicy },
+            { name: "Issued By",            value: `${issuer} (@${issuer.username})` },
           )
           .setFooter({ text: `Case ID: ${caseId} | ${timestamp}` })
           .setTimestamp(),
@@ -219,7 +248,6 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
 
 // ─── /infract ─────────────────────────────────────────────────────────────────
 
-// Maps each infraction type to its role and whether it triggers auto-termination
 const INFRACTION_CONFIG: Record<string, {
   label: string;
   roleId: string;
@@ -245,13 +273,13 @@ const infractCommand = new SlashCommandBuilder()
       .setDescription("Type of infraction")
       .setRequired(true)
       .addChoices(
-        { name: "Strike 1",          value: "strike_1"          },
-        { name: "Strike 2",          value: "strike_2"          },
-        { name: "Strike 3 (Auto-Termination)", value: "strike_3" },
-        { name: "Activity Strike 1", value: "activity_strike_1" },
-        { name: "Activity Strike 2 (Auto-Termination)", value: "activity_strike_2" },
-        { name: "Termination",       value: "termination"       },
-        { name: "Staff Blacklisted", value: "staff_blacklisted" },
+        { name: "Strike 1",                              value: "strike_1"          },
+        { name: "Strike 2",                              value: "strike_2"          },
+        { name: "Strike 3 (Auto-Termination)",           value: "strike_3"          },
+        { name: "Activity Strike 1",                     value: "activity_strike_1" },
+        { name: "Activity Strike 2 (Auto-Termination)",  value: "activity_strike_2" },
+        { name: "Termination",                           value: "termination"       },
+        { name: "Staff Blacklisted",                     value: "staff_blacklisted" },
       ),
   )
   .addStringOption((o) => o.setName("reason").setDescription("Reason for the infraction").setRequired(true));
@@ -263,23 +291,20 @@ async function handleInfract(interaction: ChatInputCommandInteraction) {
   }
 
   const targetUser = interaction.options.getUser("user", true);
-  const typeKey = interaction.options.getString("type", true);
-  const reason = interaction.options.getString("reason", true);
-  const config = INFRACTION_CONFIG[typeKey];
-  const issuer = interaction.user;
-  const guild = interaction.guild;
-  const caseId = generateCaseId();
-  const timestamp = nowTimestamp();
+  const typeKey    = interaction.options.getString("type", true);
+  const reason     = interaction.options.getString("reason", true);
+  const config     = INFRACTION_CONFIG[typeKey];
+  const issuer     = interaction.user;
+  const guild      = interaction.guild;
+  const caseId     = generateCaseId();
+  const timestamp  = nowTimestamp();
 
   await interaction.deferReply({ flags: 64 });
 
-  // Assign the infraction role
   if (guild) {
     try {
       const member = await guild.members.fetch(targetUser.id);
       await member.roles.add(config.roleId, `${config.label} by ${issuer.tag} — ${reason}`);
-
-      // Auto-termination for Strike 3 and Activity Strike 2
       if (config.autoTerminate) {
         await member.roles.add(TERMINATION_ROLE_ID, `Auto-terminated due to ${config.label}`);
       }
@@ -288,20 +313,18 @@ async function handleInfract(interaction: ChatInputCommandInteraction) {
     }
   }
 
-  const autoTerminateNote = config.autoTerminate
-    ? "\n⚠️ **This infraction carries an AUTOMATIC TERMINATION.**"
-    : "";
+  const autoNote = config.autoTerminate ? "\n⚠️ **This infraction carries an AUTOMATIC TERMINATION.**" : "";
 
   const embed = new EmbedBuilder()
     .setColor(config.color as number)
     .setAuthor({ name: `Infraction Issued by ${issuer.displayName ?? issuer.username}`, iconURL: issuer.displayAvatarURL() })
     .setTitle(`Staff Infraction — ${config.label}`)
-    .setDescription(autoTerminateNote || null)
+    .setDescription(autoNote || null)
     .setThumbnail(guild?.iconURL() ?? null)
     .addFields(
-      { name: "Infracted User", value: `${targetUser} (@${targetUser.username})` },
-      { name: "Infraction Type", value: config.label },
-      { name: "Reason", value: reason },
+      { name: "Infracted User",   value: `${targetUser} (@${targetUser.username})` },
+      { name: "Infraction Type",  value: config.label },
+      { name: "Reason",           value: reason },
     )
     .setFooter({ text: `Case ID: ${caseId} | ${timestamp}`, iconURL: issuer.displayAvatarURL() });
 
@@ -316,19 +339,18 @@ async function handleInfract(interaction: ChatInputCommandInteraction) {
     logger.info({ infractedUserId: targetUser.id, typeKey, caseId, invoker: issuer.id }, "Infraction issued");
   } catch (err) {
     logger.error({ err }, "Failed to send infraction embed");
-    await interaction.editReply({ content: "Failed to post the infraction. Make sure the bot has access to the infraction channel." });
+    await interaction.editReply({ content: "Failed to post the infraction." });
     return;
   }
 
-  // DM the infracted user
   try {
     const dmEmbed = new EmbedBuilder()
       .setColor(config.color as number)
       .setTitle(`You Have Received a Staff Infraction — ${config.label}`)
       .addFields(
         { name: "Infraction Type", value: config.label },
-        { name: "Reason", value: reason },
-        { name: "Issued By", value: `${issuer} (@${issuer.username})` },
+        { name: "Reason",          value: reason },
+        { name: "Issued By",       value: `${issuer} (@${issuer.username})` },
       )
       .setFooter({ text: `Case ID: ${caseId} | ${timestamp}` })
       .setTimestamp();
@@ -336,7 +358,6 @@ async function handleInfract(interaction: ChatInputCommandInteraction) {
     if (config.autoTerminate) {
       dmEmbed.setDescription("⚠️ This infraction carries an **Automatic Termination**.");
     }
-
     await targetUser.send({ embeds: [dmEmbed] });
   } catch (err) {
     logger.warn({ err, targetUserId: targetUser.id }, "Could not DM user about infraction");
@@ -358,7 +379,7 @@ const voidCommand = new SlashCommandBuilder()
         { name: "Promotion",  value: "promotion"  },
       ),
   )
-  .addStringOption((o) => o.setName("caseid").setDescription("The Case ID to void").setRequired(true))
+  .addStringOption((o) => o.setName("caseid").setDescription("The Case ID to void (e.g. SM1234)").setRequired(true))
   .addUserOption((o) => o.setName("user").setDescription("The user whose record is being voided").setRequired(true))
   .addStringOption((o) => o.setName("reason").setDescription("Reason for voiding").setRequired(true));
 
@@ -368,18 +389,18 @@ async function handleVoid(interaction: ChatInputCommandInteraction) {
     return;
   }
 
-  const type = interaction.options.getString("type", true) as "infraction" | "promotion";
-  const caseId = interaction.options.getString("caseid", true);
+  const type       = interaction.options.getString("type", true) as "infraction" | "promotion";
+  const caseId     = interaction.options.getString("caseid", true);
   const targetUser = interaction.options.getUser("user", true);
-  const reason = interaction.options.getString("reason", true);
-  const issuer = interaction.user;
-  const guild = interaction.guild;
-  const timestamp = nowTimestamp();
+  const reason     = interaction.options.getString("reason", true);
+  const issuer     = interaction.user;
+  const guild      = interaction.guild;
+  const timestamp  = nowTimestamp();
 
   await interaction.deferReply({ flags: 64 });
 
-  const channelId = type === "infraction" ? INFRACTION_CHANNEL_ID : PROMOTION_CHANNEL_ID;
-  const typeLabel = type === "infraction" ? "Infraction" : "Promotion";
+  const channelId  = type === "infraction" ? INFRACTION_CHANNEL_ID : PROMOTION_CHANNEL_ID;
+  const typeLabel  = type === "infraction" ? "Infraction" : "Promotion";
 
   const embed = new EmbedBuilder()
     .setColor(0x95a5a6)
@@ -387,10 +408,10 @@ async function handleVoid(interaction: ChatInputCommandInteraction) {
     .setTitle(`⚪ ${typeLabel} VOIDED`)
     .setThumbnail(guild?.iconURL() ?? null)
     .addFields(
-      { name: "User", value: `${targetUser} (@${targetUser.username})` },
+      { name: "User",           value: `${targetUser} (@${targetUser.username})` },
       { name: "Voided Case ID", value: caseId },
-      { name: "Reason", value: reason },
-      { name: "Voided By", value: `${issuer} (@${issuer.username})` },
+      { name: "Reason",         value: reason },
+      { name: "Voided By",      value: `${issuer} (@${issuer.username})` },
     )
     .setFooter({ text: `Void timestamp: ${timestamp}`, iconURL: issuer.displayAvatarURL() });
 
@@ -409,7 +430,6 @@ async function handleVoid(interaction: ChatInputCommandInteraction) {
     return;
   }
 
-  // DM the user about the void
   try {
     await targetUser.send({
       embeds: [
@@ -418,8 +438,8 @@ async function handleVoid(interaction: ChatInputCommandInteraction) {
           .setTitle(`Your ${typeLabel} Has Been Voided`)
           .addFields(
             { name: "Voided Case ID", value: caseId },
-            { name: "Reason", value: reason },
-            { name: "Voided By", value: `${issuer} (@${issuer.username})` },
+            { name: "Reason",         value: reason },
+            { name: "Voided By",      value: `${issuer} (@${issuer.username})` },
           )
           .setFooter({ text: `Void timestamp: ${timestamp}` })
           .setTimestamp(),
@@ -444,10 +464,10 @@ async function handleNickname(interaction: ChatInputCommandInteraction) {
     return;
   }
 
-  const targetUser = interaction.options.getUser("user", true);
-  const newNickname = interaction.options.getString("nickname") ?? null;
-  const issuer = interaction.user;
-  const guild = interaction.guild;
+  const targetUser   = interaction.options.getUser("user", true);
+  const newNickname  = interaction.options.getString("nickname") ?? null;
+  const issuer       = interaction.user;
+  const guild        = interaction.guild;
 
   await interaction.deferReply({ flags: 64 });
 
@@ -486,8 +506,8 @@ async function handleNickname(interaction: ChatInputCommandInteraction) {
           .setTitle("Your Nickname Has Been Changed")
           .addFields(
             { name: "Previous Nickname", value: oldNickname },
-            { name: "New Nickname", value: displayNew },
-            { name: "Changed By", value: `${issuer} (@${issuer.username})` },
+            { name: "New Nickname",      value: displayNew },
+            { name: "Changed By",        value: `${issuer} (@${issuer.username})` },
           )
           .setTimestamp(),
       ],
@@ -539,7 +559,7 @@ const hostCommand = new SlashCommandBuilder()
           .setRequired(true)
           .addChoices({ name: "Staff Training", value: "staff_training" }),
       )
-      .addUserOption((o) => o.setName("cohost").setDescription("The co-host of the training (optional)").setRequired(false)),
+      .addUserOption((o) => o.setName("cohost").setDescription("The co-host (optional)").setRequired(false)),
   );
 
 function buildTrainingEmbed(opts: {
@@ -578,16 +598,17 @@ function buildTrainingEmbed(opts: {
 
 function buildTrainingRows(status: "open" | "locked" | "ended", trainingId: string): ActionRowBuilder<ButtonBuilder>[] {
   const ended = status === "ended";
-  const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(`training_open_${trainingId}`).setLabel("Open").setStyle(ButtonStyle.Success).setDisabled(status === "open" || ended),
-    new ButtonBuilder().setCustomId(`training_lock_${trainingId}`).setLabel("Lock").setStyle(ButtonStyle.Primary).setDisabled(status === "locked" || ended),
-    new ButtonBuilder().setCustomId(`training_end_${trainingId}`).setLabel("End/Cancel").setStyle(ButtonStyle.Danger).setDisabled(ended),
-  );
-  const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(`training_attend_${trainingId}`).setLabel("Attend").setStyle(ButtonStyle.Success).setDisabled(ended),
-    new ButtonBuilder().setCustomId(`training_viewattendees_${trainingId}`).setLabel("View Attendees").setStyle(ButtonStyle.Secondary).setDisabled(ended),
-  );
-  return [row1, row2];
+  return [
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`training_open_${trainingId}`).setLabel("Open").setStyle(ButtonStyle.Success).setDisabled(status === "open" || ended),
+      new ButtonBuilder().setCustomId(`training_lock_${trainingId}`).setLabel("Lock").setStyle(ButtonStyle.Primary).setDisabled(status === "locked" || ended),
+      new ButtonBuilder().setCustomId(`training_end_${trainingId}`).setLabel("End/Cancel").setStyle(ButtonStyle.Danger).setDisabled(ended),
+    ),
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`training_attend_${trainingId}`).setLabel("Attend").setStyle(ButtonStyle.Success).setDisabled(ended),
+      new ButtonBuilder().setCustomId(`training_viewattendees_${trainingId}`).setLabel("View Attendees").setStyle(ButtonStyle.Secondary).setDisabled(ended),
+    ),
+  ];
 }
 
 async function handleHostTraining(interaction: ChatInputCommandInteraction) {
@@ -596,12 +617,12 @@ async function handleHostTraining(interaction: ChatInputCommandInteraction) {
     return;
   }
 
-  const host      = interaction.options.getUser("host", true);
-  const coHost    = interaction.options.getUser("cohost") ?? null;
-  const time      = interaction.options.getString("time", true);
-  const typeKey   = interaction.options.getString("type", true);
-  const type      = TRAINING_TYPES[typeKey];
-  const issuer    = interaction.user;
+  const host       = interaction.options.getUser("host", true);
+  const coHost     = interaction.options.getUser("cohost") ?? null;
+  const time       = interaction.options.getString("time", true);
+  const typeKey    = interaction.options.getString("type", true);
+  const type       = TRAINING_TYPES[typeKey];
+  const issuer     = interaction.user;
   const trainingId = `TRN${generateCaseId()}`;
 
   await interaction.deferReply({ flags: 64 });
@@ -642,6 +663,225 @@ async function handleHostTraining(interaction: ChatInputCommandInteraction) {
   await interaction.editReply({ content: `Training **${trainingId}** announced in <#${TRAINING_CHANNEL_ID}>.` });
   logger.info({ trainingId, hostId: host.id, time, typeKey, invoker: issuer.id }, "Training announced");
 }
+
+// ─── /send application ────────────────────────────────────────────────────────
+
+const sendCommand = new SlashCommandBuilder()
+  .setName("send")
+  .setDescription("Send embeds to channels")
+  .addSubcommand((sub) =>
+    sub
+      .setName("application")
+      .setDescription("Send the staff application embed to a channel")
+      .addStringOption((o) =>
+        o.setName("channel_id").setDescription("The ID of the channel to send the application embed to").setRequired(true),
+      ),
+  );
+
+async function handleSendApplication(interaction: ChatInputCommandInteraction) {
+  if (!memberHasRole(interaction.member, SEND_APP_ALLOWED_ROLE_ID)) {
+    await interaction.reply({ content: "You do not have permission to use this command.", flags: 64 });
+    return;
+  }
+
+  const channelId = interaction.options.getString("channel_id", true);
+  await interaction.deferReply({ flags: 64 });
+
+  let targetChannel;
+  try {
+    targetChannel = await interaction.client.channels.fetch(channelId);
+  } catch {
+    await interaction.editReply({ content: `Could not find a channel with ID \`${channelId}\`.` });
+    return;
+  }
+
+  if (!targetChannel?.isTextBased()) {
+    await interaction.editReply({ content: "That channel is not a text channel." });
+    return;
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor(0xe67e22)
+    .setTitle("🛡️ Staff Entry Application")
+    .setDescription("Join our evergrowing staff team and help moderate the server.");
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId("app_learn_more")
+      .setLabel("Learn More & Apply")
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("🎓"),
+  );
+
+  await targetChannel.send({ embeds: [embed], components: [row] });
+  await interaction.editReply({ content: `Application embed sent to <#${channelId}>.` });
+  logger.info({ channelId, invoker: interaction.user.id }, "Application embed sent");
+}
+
+// ─── Application system ───────────────────────────────────────────────────────
+
+interface ApplicationSession {
+  userId: string;
+  answers: string[];
+  currentQuestion: number;
+  dmChannelId: string;
+  timeoutId: ReturnType<typeof setTimeout>;
+}
+
+const applicationSessions = new Map<string, ApplicationSession>();
+
+const APPLICATION_TIMEOUT_MS = 60 * 60 * 1000; // 60 minutes
+
+async function handleLearnMore(interaction: ButtonInteraction) {
+  const ephemeralContent =
+    `🛡️ **Staff Application**\n` +
+    `-# Join our overgrowing staff team and help moderate the server.\n` +
+    `${DIVIDER}\n` +
+    `# **Before You Apply**\n` +
+    `You will have **60 MINUTES** to complete your application.\n` +
+    `-# Make sure you have enough time before starting.\n\n` +
+    `Some questions may have length requirements.\n` +
+    `-# Pay attention to **ALL** instructions.\n\n` +
+    `All answers must be written by **YOU.**\n` +
+    `-# The use of AI and/or copying others is strictly prohibited.\n\n` +
+    `Your answers must be **TRUTHFUL.**\n` +
+    `-# Applications with false information will be denied.\n\n` +
+    `You can always cancel your application.\n` +
+    `-# A record **MAY** be stored regardless.\n` +
+    `${DIVIDER}\n` +
+    `⚠️ Make sure you have finished reading everything above. If you don't meet any of the requirements, your application will be **instantly denied.**`;
+
+  const applyRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId("app_apply_now")
+      .setLabel("Apply Now")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("🎓"),
+  );
+
+  await interaction.reply({ content: ephemeralContent, components: [applyRow], flags: 64 });
+}
+
+async function handleApplyNow(interaction: ButtonInteraction) {
+  const userId = interaction.user.id;
+
+  if (applicationSessions.has(userId)) {
+    await interaction.reply({ content: "You already have an active application in progress. Please finish or wait for it to expire.", flags: 64 });
+    return;
+  }
+
+  if (APPLICATION_QUESTIONS.length === 0) {
+    await interaction.reply({ content: "Applications are not yet set up. Please contact a staff member.", flags: 64 });
+    return;
+  }
+
+  await interaction.reply({ content: "✅ Check your DMs! Your application has started. You have **60 minutes** to complete it. Type `cancel` at any time to cancel.", flags: 64 });
+
+  let dmChannel;
+  try {
+    dmChannel = await interaction.user.createDM();
+    await dmChannel.send(
+      `👋 Welcome to the **Staff Application**!\n\n` +
+      `You have **60 minutes** to complete this application. Type \`cancel\` at any time to cancel.\n\n` +
+      `${DIVIDER}\n\n` +
+      `**Question 1/${APPLICATION_QUESTIONS.length}:**\n${APPLICATION_QUESTIONS[0]}`,
+    );
+  } catch {
+    await interaction.followUp({ content: "❌ I couldn't DM you. Please enable DMs from server members and try again.", flags: 64 });
+    return;
+  }
+
+  const timeoutId = setTimeout(async () => {
+    applicationSessions.delete(userId);
+    try {
+      await dmChannel.send(
+        `⏰ **Your application has expired.** The 60-minute time limit has been reached.\n` +
+        `You may start a new application at any time.`,
+      );
+    } catch {
+      // User may have closed DMs
+    }
+    logger.info({ userId }, "Application expired");
+  }, APPLICATION_TIMEOUT_MS);
+
+  applicationSessions.set(userId, {
+    userId,
+    answers:         [],
+    currentQuestion: 0,
+    dmChannelId:     dmChannel.id,
+    timeoutId,
+  });
+
+  logger.info({ userId }, "Application started");
+}
+
+async function handleApplicationDmReply(message: Message, client: Client) {
+  const userId  = message.author.id;
+  const session = applicationSessions.get(userId);
+  if (!session) return;
+
+  // Cancel
+  if (message.content.trim().toLowerCase() === "cancel") {
+    clearTimeout(session.timeoutId);
+    applicationSessions.delete(userId);
+    await message.reply("❌ Your application has been **cancelled**. You may start a new one at any time.");
+    logger.info({ userId }, "Application cancelled");
+    return;
+  }
+
+  // Record answer
+  session.answers.push(message.content.trim());
+  session.currentQuestion++;
+
+  // More questions to ask
+  if (session.currentQuestion < APPLICATION_QUESTIONS.length) {
+    await message.reply(
+      `**Question ${session.currentQuestion + 1}/${APPLICATION_QUESTIONS.length}:**\n${APPLICATION_QUESTIONS[session.currentQuestion]}`,
+    );
+    return;
+  }
+
+  // All questions answered — submit
+  clearTimeout(session.timeoutId);
+  applicationSessions.delete(userId);
+
+  await message.reply(
+    `✅ **Application submitted!** Thank you for applying. You will be notified of the result.\n` +
+    `A record of your application has been stored.`,
+  );
+
+  // Send completed application to review channel
+  try {
+    const reviewChannel = await client.channels.fetch(APPLICATION_REVIEW_CHANNEL_ID);
+    if (reviewChannel?.isTextBased()) {
+      const fieldsChunks: { name: string; value: string }[][] = [[]];
+      APPLICATION_QUESTIONS.forEach((q, i) => {
+        const answer = session.answers[i] ?? "No answer";
+        const entry  = { name: `Q${i + 1}: ${q.substring(0, 200)}`, value: answer.substring(0, 1024) };
+        if (fieldsChunks[fieldsChunks.length - 1].length >= 25) {
+          fieldsChunks.push([]);
+        }
+        fieldsChunks[fieldsChunks.length - 1].push(entry);
+      });
+
+      for (let i = 0; i < fieldsChunks.length; i++) {
+        const reviewEmbed = new EmbedBuilder()
+          .setColor(0xe67e22)
+          .setTitle(i === 0 ? `📋 New Staff Application — ${message.author.tag}` : `📋 Application (cont.) — ${message.author.tag}`)
+          .setThumbnail(message.author.displayAvatarURL())
+          .addFields(...fieldsChunks[i])
+          .setFooter({ text: `User ID: ${userId} | Submitted at ${nowTimestamp()}` });
+        await reviewChannel.send({ embeds: [reviewEmbed] });
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "Failed to send application to review channel");
+  }
+
+  logger.info({ userId }, "Application submitted");
+}
+
+// ─── Training button handler ──────────────────────────────────────────────────
 
 async function handleTrainingButton(interaction: ButtonInteraction) {
   const cid        = interaction.customId;
@@ -693,13 +933,6 @@ async function handleTrainingButton(interaction: ButtonInteraction) {
     return;
   }
 
-  const hostField   = original.fields.find((f) => f.name === "Host")?.value ?? "-";
-  const coHostField = original.fields.find((f) => f.name === "Co Host")?.value ?? "-";
-  const timeRaw     = original.fields.find((f) => f.name === "Starting Time")?.value ?? "In -";
-  const footer      = original.footer;
-  const description = original.description ?? "";
-  const title       = original.title ?? "Training";
-
   const statusMap = {
     open:   { emoji: "🟢", label: "Open",           color: 0x2ecc71 as const },
     locked: { emoji: "🔵", label: "Locked",          color: 0x3498db as const },
@@ -709,16 +942,18 @@ async function handleTrainingButton(interaction: ButtonInteraction) {
 
   const updated = new EmbedBuilder()
     .setColor(s.color)
-    .setTitle(title)
-    .setDescription(description)
+    .setTitle(original.title ?? "Training")
+    .setDescription(original.description ?? "")
     .addFields(
-      { name: "Host",          value: hostField },
-      { name: "Co Host",       value: coHostField },
-      { name: "Starting Time", value: timeRaw },
+      { name: "Host",          value: original.fields.find((f) => f.name === "Host")?.value          ?? "-" },
+      { name: "Co Host",       value: original.fields.find((f) => f.name === "Co Host")?.value       ?? "-" },
+      { name: "Starting Time", value: original.fields.find((f) => f.name === "Starting Time")?.value ?? "In -" },
       { name: "Status",        value: `${s.emoji} ${s.label}` },
     );
 
-  if (footer) updated.setFooter({ text: footer.text, iconURL: footer.iconURL ?? undefined });
+  if (original.footer) {
+    updated.setFooter({ text: original.footer.text, iconURL: original.footer.iconURL ?? undefined });
+  }
 
   await interaction.update({ embeds: [updated], components: buildTrainingRows(status, trainingId) });
   logger.info({ trainingId, status, invoker: interaction.user.id }, "Training status updated");
@@ -738,6 +973,7 @@ async function registerCommands() {
         voidCommand.toJSON(),
         nicknameCommand.toJSON(),
         hostCommand.toJSON(),
+        sendCommand.toJSON(),
       ],
     });
     logger.info("Discord slash commands registered successfully.");
@@ -751,7 +987,12 @@ export async function startBot() {
   await registerCommands();
 
   const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMembers,
+      GatewayIntentBits.DirectMessages,
+      GatewayIntentBits.MessageContent,
+    ],
   });
 
   client.on("error", (err) => {
@@ -760,6 +1001,18 @@ export async function startBot() {
 
   client.once("ready", (c) => {
     logger.info({ tag: c.user.tag }, "Discord bot is online");
+  });
+
+  // Handle DM replies for active applications
+  client.on("messageCreate", async (message: Message) => {
+    if (message.author.bot) return;
+    if (message.channel.type !== ChannelType.DM) return;
+    if (!applicationSessions.has(message.author.id)) return;
+    try {
+      await handleApplicationDmReply(message, client);
+    } catch (err) {
+      logger.error({ err }, "Error handling application DM reply");
+    }
   });
 
   client.on("interactionCreate", async (interaction) => {
@@ -772,9 +1025,12 @@ export async function startBot() {
         else if (interaction.commandName === "void")     await handleVoid(interaction);
         else if (interaction.commandName === "nickname") await handleNickname(interaction);
         else if (interaction.commandName === "host" && sub === "training") await handleHostTraining(interaction);
+        else if (interaction.commandName === "send" && sub === "application") await handleSendApplication(interaction);
       } else if (interaction.isButton()) {
         const cid = interaction.customId;
-        if (
+        if (cid === "app_learn_more")  await handleLearnMore(interaction);
+        else if (cid === "app_apply_now") await handleApplyNow(interaction);
+        else if (
           cid.startsWith("training_open_") ||
           cid.startsWith("training_lock_") ||
           cid.startsWith("training_end_") ||
