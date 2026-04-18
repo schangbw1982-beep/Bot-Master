@@ -337,13 +337,12 @@ async function handleInfractionProof(interaction: ButtonInteraction) {
     if (!channel || !("threads" in channel)) { await interaction.followUp({ content: "Could not create thread — channel does not support threads.", flags: 64 }); return; }
     const thread = await (channel as any).threads.create({
       name:      `Proof, Case #${caseId}`,
-      type:      ChannelType.PrivateThread,
-      invitable: false,
+      type:      ChannelType.PublicThread,
       reason:    `Proof thread for infraction ${caseId}`,
     });
     await thread.members.add(record.issuerId);
     await thread.members.add(record.infractedId);
-    await thread.send({ embeds: [new EmbedBuilder().setColor(DARK).setTitle(`🔗 Proof Thread — Case #${caseId}`).setDescription("This is a private proof thread. Only the issuing moderator and the infracted staff member can see this thread.\n\nPlease post any relevant proof here.")] });
+    await thread.send({ embeds: [new EmbedBuilder().setColor(DARK).setTitle(`🔗 Proof Thread — Case #${caseId}`).setDescription("This thread has been created for submitting proof related to this infraction.\n\nPlease post any relevant proof here.")] });
   } catch (err) {
     logger.error({ err }, "Failed to create proof thread");
     await interaction.followUp({ content: "Failed to create proof thread. Ensure the bot has the **Create Private Threads** permission.", flags: 64 });
@@ -370,13 +369,12 @@ async function handleInfractionAppeal(interaction: ButtonInteraction) {
     if (!channel || !("threads" in channel)) { await interaction.followUp({ content: "Could not create thread — channel does not support threads.", flags: 64 }); return; }
     const thread = await (channel as any).threads.create({
       name:      `appeal-${safeName}-${threadNum}`,
-      type:      ChannelType.PrivateThread,
-      invitable: false,
+      type:      ChannelType.PublicThread,
       reason:    `Appeal thread for infraction ${caseId}`,
     });
     await thread.members.add(record.issuerId);
     await thread.members.add(record.infractedId);
-    await thread.send({ embeds: [new EmbedBuilder().setColor(DARK).setTitle(`✅ Appeal Thread — Case #${caseId}`).setDescription("This is a private appeal thread. Only the issuing moderator and the infracted staff member can see this thread.\n\nPlease state your appeal and provide any supporting information.")] });
+    await thread.send({ embeds: [new EmbedBuilder().setColor(DARK).setTitle(`✅ Appeal Thread — Case #${caseId}`).setDescription("This thread has been created to process this infraction appeal.\n\nPlease state your appeal and provide any supporting information.")] });
   } catch (err) {
     logger.error({ err }, "Failed to create appeal thread");
     await interaction.followUp({ content: "Failed to create appeal thread. Ensure the bot has the **Create Private Threads** permission.", flags: 64 });
