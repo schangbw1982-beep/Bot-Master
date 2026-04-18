@@ -162,7 +162,6 @@ const promoteCommand = new SlashCommandBuilder()
   .setDescription("Issue a staff promotion")
   .addUserOption((o) => o.setName("user").setDescription("The user to promote").setRequired(true))
   .addRoleOption((o) => o.setName("role").setDescription("The role to promote them to").setRequired(true))
-  .addStringOption((o) => o.setName("zero_tolerance_policy").setDescription("Zero Tolerance Policy duration").setRequired(true).addChoices({ name: "1 Week", value: "1 Week" }, { name: "2 Weeks", value: "2 Weeks" }))
   .addStringOption((o) => o.setName("reason").setDescription("Reason for the promotion").setRequired(false))
   .addStringOption((o) => o.setName("invite_url").setDescription("Invite link for the button (optional)").setRequired(false));
 
@@ -173,7 +172,6 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
   }
   const targetUser          = interaction.options.getUser("user", true);
   const role                = interaction.options.getRole("role", true);
-  const zeroTolerancePolicy = interaction.options.getString("zero_tolerance_policy", true);
   const reason              = interaction.options.getString("reason") ?? "No reason provided.";
   const inviteUrl           = interaction.options.getString("invite_url") ?? null;
   const issuer              = interaction.user;
@@ -182,6 +180,7 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
   const timestamp           = nowTimestamp();
   const botAvatar           = interaction.client.user?.displayAvatarURL() ?? undefined;
 
+  if (interaction.replied || interaction.deferred) return;
   await interaction.deferReply({ flags: 64 });
 
   if (guild) {
@@ -196,10 +195,9 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
     .setTitle("Staff Promotion")
     .setThumbnail(botAvatar ?? null)
     .addFields(
-      { name: "Promoted User",         value: `${targetUser} (@${targetUser.username})` },
-      { name: "Promoted To",           value: `<@&${role.id}>` },
-      { name: "Reason",                value: reason },
-      { name: "Zero Tolerance Policy", value: zeroTolerancePolicy },
+      { name: "Promoted User", value: `${targetUser} (@${targetUser.username})` },
+      { name: "Promoted To",  value: `<@&${role.id}>` },
+      { name: "Reason",       value: reason },
     )
     .setImage("attachment://banner.png")
     .setFooter({ text: `Case ID: ${caseId} | ${timestamp}` });
@@ -217,7 +215,7 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
 
   try {
     const dmBanner = makeBanner();
-    await targetUser.send({ embeds: [new EmbedBuilder().setColor(DARK).setTitle("You Have Been Promoted!").addFields({ name: "Promoted To", value: `<@&${role.id}>` }, { name: "Reason", value: reason }, { name: "Zero Tolerance Policy", value: zeroTolerancePolicy }, { name: "Issued By", value: `${issuer} (@${issuer.username})` }).setImage("attachment://banner.png").setFooter({ text: `Case ID: ${caseId} | ${timestamp}` }).setTimestamp()], files: [dmBanner] });
+    await targetUser.send({ embeds: [new EmbedBuilder().setColor(DARK).setTitle("You Have Been Promoted!").addFields({ name: "Promoted To", value: `<@&${role.id}>` }, { name: "Reason", value: reason }, { name: "Issued By", value: `${issuer} (@${issuer.username})` }).setImage("attachment://banner.png").setFooter({ text: `Case ID: ${caseId} | ${timestamp}` }).setTimestamp()], files: [dmBanner] });
   } catch (err) { logger.warn({ err }, "Could not DM user about promotion"); }
 }
 
@@ -263,6 +261,7 @@ async function handleInfract(interaction: ChatInputCommandInteraction) {
   const timestamp  = nowTimestamp();
   const botAvatar  = interaction.client.user?.displayAvatarURL() ?? undefined;
 
+  if (interaction.replied || interaction.deferred) return;
   await interaction.deferReply({ flags: 64 });
 
   if (guild) {
