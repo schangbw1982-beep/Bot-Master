@@ -949,7 +949,17 @@ export async function startBot() {
   });
 
   client.on("error", (err) => { logger.error({ err }, "Discord client error"); });
-  client.once("ready", (c) => { logger.info({ tag: c.user.tag }, "Discord bot is online"); });
+  client.once("ready", async (c) => {
+    logger.info({ tag: c.user.tag }, "Discord bot is online");
+    try {
+      await c.user.setUsername("Oceanview Roleplay Management");
+      logger.info("Bot username updated");
+    } catch (err) { logger.warn({ err }, "Could not update bot username (rate limited or no change needed)"); }
+    try {
+      await c.user.setAvatar("https://cdn.discordapp.com/attachments/1491731178028535892/1494957361930960917/New_Project_-_2025-02-24T154954.285.png?ex=69e47f0a&is=69e32d8a&hm=1ab01bbbed65b84e15a250b08083854b89ce9cec4f9f1f2f59dd82f40bebc747&");
+      logger.info("Bot avatar updated");
+    } catch (err) { logger.warn({ err }, "Could not update bot avatar (rate limited or invalid URL)"); }
+  });
 
   client.on("messageCreate", async (message: Message) => {
     if (message.author.bot) return;
