@@ -14,11 +14,15 @@ import {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
+  AttachmentBuilder,
   ChannelType,
   Message,
   TextBasedChannel,
 } from "discord.js";
+import path from "path";
 import { logger } from "./lib/logger";
+
+const BANNER_PATH = path.resolve(process.cwd(), "assets/banner.png");
 
 const token = process.env["DISCORD_BOT_TOKEN"];
 const applicationId = process.env["DISCORD_APPLICATION_ID"];
@@ -63,6 +67,43 @@ const BLUE   = 0x5865f2;
 const GREEN  = 0x2ecc71;
 const RED    = 0xe74c3c;
 const GREY   = 0x95a5a6;
+const DARK   = 0x1a1d21;
+
+// ─── Infraction record store ──────────────────────────────────────────────────
+
+interface InfractionRecord {
+  caseId:          string;
+  issuerId:        string;
+  infractedId:     string;
+  guildId:         string;
+  channelId:       string;
+  proofThreadDone:  boolean;
+  appealThreadDone: boolean;
+}
+const infractionRecords  = new Map<string, InfractionRecord>();
+let   appealThreadCounter = 1000;
+
+function makeBanner(): AttachmentBuilder {
+  return new AttachmentBuilder(BANNER_PATH, { name: "banner.png" });
+}
+
+function buildInfractionButtons(caseId: string, proofDone: boolean, appealDone: boolean): ActionRowBuilder<ButtonBuilder> {
+  const proofBtn = new ButtonBuilder()
+    .setCustomId(`infr_proof_${caseId}`)
+    .setStyle(proofDone ? ButtonStyle.Secondary : ButtonStyle.Secondary)
+    .setLabel(proofDone ? "Proof Thread Created" : "Post Proof")
+    .setDisabled(proofDone);
+  if (!proofDone) proofBtn.setEmoji("🔗");
+
+  const appealBtn = new ButtonBuilder()
+    .setCustomId(`infr_appeal_${caseId}`)
+    .setStyle(appealDone ? ButtonStyle.Secondary : ButtonStyle.Success)
+    .setLabel(appealDone ? "Appeal Thread Created" : "Appeal Infraction")
+    .setDisabled(appealDone);
+  if (!appealDone) appealBtn.setEmoji("✅");
+
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(proofBtn, appealBtn);
+}
 
 function generateCaseId(): string {
   return `SM${Math.floor(1000 + Math.random() * 9000)}`;
@@ -139,6 +180,7 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
   const guild               = interaction.guild;
   const caseId              = generateCaseId();
   const timestamp           = nowTimestamp();
+  const botAvatar           = interaction.client.user?.displayAvatarURL() ?? undefined;
 
   await interaction.deferReply({ flags: 64 });
 
@@ -147,18 +189,20 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
     catch (err) { logger.warn({ err }, "Could not assign role"); }
   }
 
-  const embed = new EmbedBuilder()
-    .setColor(BLUE)
+  const banner = makeBanner();
+  const embed  = new EmbedBuilder()
+    .setColor(DARK)
     .setAuthor({ name: `Promotion Issued by ${issuer.displayName ?? issuer.username}`, iconURL: issuer.displayAvatarURL() })
     .setTitle("Staff Promotion")
-    .setThumbnail(guild?.iconURL() ?? null)
+    .setThumbnail(botAvatar ?? null)
     .addFields(
-      { name: "Promoted User", value: `${targetUser} (@${targetUser.username})` },
-      { name: "Promoted To", value: `<@&${role.id}>` },
-      { name: "Reason", value: reason },
+      { name: "Promoted User",         value: `${targetUser} (@${targetUser.username})` },
+      { name: "Promoted To",           value: `<@&${role.id}>` },
+      { name: "Reason",                value: reason },
       { name: "Zero Tolerance Policy", value: zeroTolerancePolicy },
     )
-    .setFooter({ text: `Case ID: ${caseId} | ${timestamp}`, iconURL: issuer.displayAvatarURL() });
+    .setImage("attachment://banner.png")
+    .setFooter({ text: `Case ID: ${caseId} | ${timestamp}` });
 
   const components: ActionRowBuilder<ButtonBuilder>[] = [];
   if (inviteUrl) components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel("Join the Server").setStyle(ButtonStyle.Link).setURL(inviteUrl)));
@@ -166,12 +210,14 @@ async function handlePromote(interaction: ChatInputCommandInteraction) {
   try {
     const channel = await interaction.client.channels.fetch(PROMOTION_CHANNEL_ID);
     if (!channel?.isTextBased()) { await interaction.editReply({ content: "Promotion channel not found." }); return; }
-    await channel.send({ content: `${targetUser} (@${targetUser.username})`, embeds: [embed], components });
+    await channel.send({ content: `${targetUser} (@${targetUser.username})`, embeds: [embed], files: [banner], components });
     await interaction.editReply({ content: `Promotion posted in <#${PROMOTION_CHANNEL_ID}>.` });
+    logger.info({ promotedUserId: targetUser.id, caseId, invoker: issuer.id }, "Promotion issued");
   } catch (err) { logger.error({ err }, "Failed to send promotion embed"); await interaction.editReply({ content: "Failed to post promotion." }); return; }
 
   try {
-    await targetUser.send({ embeds: [new EmbedBuilder().setColor(BLUE).setTitle("You Have Been Promoted!").addFields({ name: "Promoted To", value: `<@&${role.id}>` }, { name: "Reason", value: reason }, { name: "Zero Tolerance Policy", value: zeroTolerancePolicy }, { name: "Issued By", value: `${issuer} (@${issuer.username})` }).setFooter({ text: `Case ID: ${caseId} | ${timestamp}` }).setTimestamp()] });
+    const dmBanner = makeBanner();
+    await targetUser.send({ embeds: [new EmbedBuilder().setColor(DARK).setTitle("You Have Been Promoted!").addFields({ name: "Promoted To", value: `<@&${role.id}>` }, { name: "Reason", value: reason }, { name: "Zero Tolerance Policy", value: zeroTolerancePolicy }, { name: "Issued By", value: `${issuer} (@${issuer.username})` }).setImage("attachment://banner.png").setFooter({ text: `Case ID: ${caseId} | ${timestamp}` }).setTimestamp()], files: [dmBanner] });
   } catch (err) { logger.warn({ err }, "Could not DM user about promotion"); }
 }
 
@@ -215,6 +261,7 @@ async function handleInfract(interaction: ChatInputCommandInteraction) {
   const guild      = interaction.guild;
   const caseId     = generateCaseId();
   const timestamp  = nowTimestamp();
+  const botAvatar  = interaction.client.user?.displayAvatarURL() ?? undefined;
 
   await interaction.deferReply({ flags: 64 });
 
@@ -226,28 +273,114 @@ async function handleInfract(interaction: ChatInputCommandInteraction) {
     } catch (err) { logger.warn({ err }, "Could not assign infraction role"); }
   }
 
-  const embed = new EmbedBuilder()
-    .setColor(config.color as number)
-    .setAuthor({ name: `Infraction Issued by ${issuer.displayName ?? issuer.username}`, iconURL: issuer.displayAvatarURL() })
-    .setTitle(`Staff Infraction — ${config.label}`)
-    .setThumbnail(guild?.iconURL() ?? null)
-    .addFields({ name: "Infracted User", value: `${targetUser} (@${targetUser.username})` }, { name: "Infraction Type", value: config.label }, { name: "Reason", value: reason })
-    .setFooter({ text: `Case ID: ${caseId} | ${timestamp}`, iconURL: issuer.displayAvatarURL() });
+  const banner = makeBanner();
+  const embed  = new EmbedBuilder()
+    .setColor(DARK)
+    .setAuthor({ name: `Infraction Logged by ${issuer.displayName ?? issuer.username}`, iconURL: issuer.displayAvatarURL() })
+    .setTitle("Staff Infraction")
+    .setThumbnail(botAvatar ?? null)
+    .addFields(
+      { name: "Staff Member",    value: `${targetUser} (@${targetUser.username})` },
+      { name: "Infraction Type", value: config.label },
+      { name: "Reason",          value: reason },
+      { name: "Appeal Status",   value: "Appealable" },
+    )
+    .setImage("attachment://banner.png")
+    .setFooter({ text: `Case ID: ${caseId} | ${timestamp}` });
 
   if (config.autoTerminate) embed.setDescription("⚠️ **This infraction carries an AUTOMATIC TERMINATION.**");
 
+  const infrRow = buildInfractionButtons(caseId, false, false);
+
+  let channelId = INFRACTION_CHANNEL_ID;
   try {
     const channel = await interaction.client.channels.fetch(INFRACTION_CHANNEL_ID);
     if (!channel?.isTextBased()) { await interaction.editReply({ content: "Infraction channel not found." }); return; }
-    await channel.send({ content: `${targetUser} (@${targetUser.username})`, embeds: [embed] });
+    channelId = channel.id;
+    await channel.send({ content: `${targetUser} (@${targetUser.username})`, embeds: [embed], files: [banner], components: [infrRow] });
     await interaction.editReply({ content: `Infraction posted in <#${INFRACTION_CHANNEL_ID}>.` });
+    logger.info({ infractedUserId: targetUser.id, typeKey, caseId, invoker: issuer.id }, "Infraction issued");
   } catch (err) { logger.error({ err }, "Failed to send infraction embed"); await interaction.editReply({ content: "Failed to post infraction." }); return; }
 
+  // Store record for button handlers
+  infractionRecords.set(caseId, {
+    caseId, issuerId: issuer.id, infractedId: targetUser.id,
+    guildId: guild?.id ?? "", channelId,
+    proofThreadDone: false, appealThreadDone: false,
+  });
+
   try {
-    const dmEmbed = new EmbedBuilder().setColor(config.color as number).setTitle(`You Have Received a Staff Infraction — ${config.label}`).addFields({ name: "Infraction Type", value: config.label }, { name: "Reason", value: reason }, { name: "Issued By", value: `${issuer} (@${issuer.username})` }).setFooter({ text: `Case ID: ${caseId} | ${timestamp}` }).setTimestamp();
+    const dmBanner = makeBanner();
+    const dmEmbed  = new EmbedBuilder().setColor(DARK).setTitle(`You Have Received a Staff Infraction — ${config.label}`).addFields({ name: "Infraction Type", value: config.label }, { name: "Reason", value: reason }, { name: "Issued By", value: `${issuer} (@${issuer.username})` }, { name: "Appeal Status", value: "Appealable" }).setImage("attachment://banner.png").setFooter({ text: `Case ID: ${caseId} | ${timestamp}` }).setTimestamp();
     if (config.autoTerminate) dmEmbed.setDescription("⚠️ This infraction carries an **Automatic Termination**.");
-    await targetUser.send({ embeds: [dmEmbed] });
+    await targetUser.send({ embeds: [dmEmbed], files: [dmBanner] });
   } catch (err) { logger.warn({ err }, "Could not DM user about infraction"); }
+}
+
+// ─── Infraction thread buttons ────────────────────────────────────────────────
+
+async function handleInfractionProof(interaction: ButtonInteraction) {
+  const caseId = interaction.customId.replace("infr_proof_", "");
+  const record  = infractionRecords.get(caseId);
+
+  if (!record) { await interaction.reply({ content: "❌ This infraction record was not found (bot may have restarted).", flags: 64 }); return; }
+  if (interaction.user.id !== record.issuerId) {
+    await interaction.reply({ embeds: [new EmbedBuilder().setColor(RED).setTitle("❌ Not Permitted").setDescription("→ Only the issuing moderator can open a proof thread.")], flags: 64 });
+    return;
+  }
+
+  record.proofThreadDone = true;
+  await interaction.update({ components: [buildInfractionButtons(caseId, true, record.appealThreadDone)] });
+
+  try {
+    const channel = interaction.channel;
+    if (!channel || !("threads" in channel)) { await interaction.followUp({ content: "Could not create thread — channel does not support threads.", flags: 64 }); return; }
+    const thread = await (channel as any).threads.create({
+      name:      `Proof, Case #${caseId}`,
+      type:      ChannelType.PrivateThread,
+      invitable: false,
+      reason:    `Proof thread for infraction ${caseId}`,
+    });
+    await thread.members.add(record.issuerId);
+    await thread.members.add(record.infractedId);
+    await thread.send({ embeds: [new EmbedBuilder().setColor(DARK).setTitle(`🔗 Proof Thread — Case #${caseId}`).setDescription("This is a private proof thread. Only the issuing moderator and the infracted staff member can see this thread.\n\nPlease post any relevant proof here.")] });
+  } catch (err) {
+    logger.error({ err }, "Failed to create proof thread");
+    await interaction.followUp({ content: "Failed to create proof thread. Ensure the bot has the **Create Private Threads** permission.", flags: 64 });
+  }
+}
+
+async function handleInfractionAppeal(interaction: ButtonInteraction) {
+  const caseId = interaction.customId.replace("infr_appeal_", "");
+  const record  = infractionRecords.get(caseId);
+
+  if (!record) { await interaction.reply({ content: "❌ This infraction record was not found (bot may have restarted).", flags: 64 }); return; }
+  if (interaction.user.id !== record.infractedId) {
+    await interaction.reply({ embeds: [new EmbedBuilder().setColor(RED).setTitle("❌ Not Permitted").setDescription("→ Only the infracted staff member can submit an appeal.")], flags: 64 });
+    return;
+  }
+
+  record.appealThreadDone = true;
+  const threadNum = ++appealThreadCounter;
+  const safeName  = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, "").substring(0, 20);
+  await interaction.update({ components: [buildInfractionButtons(caseId, record.proofThreadDone, true)] });
+
+  try {
+    const channel = interaction.channel;
+    if (!channel || !("threads" in channel)) { await interaction.followUp({ content: "Could not create thread — channel does not support threads.", flags: 64 }); return; }
+    const thread = await (channel as any).threads.create({
+      name:      `appeal-${safeName}-${threadNum}`,
+      type:      ChannelType.PrivateThread,
+      invitable: false,
+      reason:    `Appeal thread for infraction ${caseId}`,
+    });
+    await thread.members.add(record.issuerId);
+    await thread.members.add(record.infractedId);
+    await thread.send({ embeds: [new EmbedBuilder().setColor(DARK).setTitle(`✅ Appeal Thread — Case #${caseId}`).setDescription("This is a private appeal thread. Only the issuing moderator and the infracted staff member can see this thread.\n\nPlease state your appeal and provide any supporting information.")] });
+  } catch (err) {
+    logger.error({ err }, "Failed to create appeal thread");
+    await interaction.followUp({ content: "Failed to create appeal thread. Ensure the bot has the **Create Private Threads** permission.", flags: 64 });
+  }
 }
 
 // ─── /void ────────────────────────────────────────────────────────────────────
@@ -995,6 +1128,8 @@ export async function startBot() {
         else if (cid.startsWith("app_submit_cancel_"))                          await handleAppSubmitCancel(interaction);
         else if (cid.startsWith("app_accept_") && !cid.endsWith("_done"))      await handleAppAccept(interaction, cid.replace("app_accept_", ""));
         else if (cid.startsWith("app_deny_")   && !cid.endsWith("_done"))      await handleAppDeny(interaction, cid.replace("app_deny_", ""));
+        else if (cid.startsWith("infr_proof_"))                                 await handleInfractionProof(interaction);
+        else if (cid.startsWith("infr_appeal_"))                                await handleInfractionAppeal(interaction);
         else if (cid.startsWith("training_"))                                   await handleTrainingButton(interaction);
       }
 
