@@ -6,16 +6,20 @@ import {
   SlashCommandBuilder,
   ChatInputCommandInteraction,
   ButtonInteraction,
+  StringSelectMenuInteraction,
   ModalSubmitInteraction,
   EmbedBuilder,
   ButtonBuilder,
   ButtonStyle,
   ActionRowBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
   AttachmentBuilder,
   ChannelType,
+  PermissionFlagsBits,
   Message,
   TextBasedChannel,
 } from "discord.js";
@@ -574,7 +578,176 @@ const sendCommand = new SlashCommandBuilder()
   .addSubcommand((sub) =>
     sub.setName("application")
       .setDescription("Send the staff application embed to a channel")
+      .addStringOption((o) => o.setName("channel_id").setDescription("The channel ID to send the embed to").setRequired(true)))
+  .addSubcommand((sub) =>
+    sub.setName("assistance")
+      .setDescription("Send the assistance embed to a channel")
       .addStringOption((o) => o.setName("channel_id").setDescription("The channel ID to send the embed to").setRequired(true)));
+
+// ─── Assistance / Tickets ─────────────────────────────────────────────────────
+
+const ASSISTANCE_ALLOWED_ROLE_ID = "1492502925409259650";
+
+const ASSISTANCE_BIG_BANNER    = "https://cdn.discordapp.com/attachments/1491731178028535892/1495352828951138354/image-4.png?ex=69e5ef58&is=69e49dd8&hm=206c5ad54352bbc17445034d7568be3330dbfc970d7cdcafd6dd1f8d90aa5233&";
+const ASSISTANCE_SMALL_BANNER  = "https://cdn.discordapp.com/attachments/1491731178028535892/1495352828414136422/image-9.png?ex=69e5ef58&is=69e49dd8&hm=d9c21d17a0e205600dd8d2f409274f66894ee2b227bd30fe30cd0a7188caca3f&";
+
+interface TicketTypeConfig {
+  label:       string;
+  channelPrefix: string;
+  categoryId:  string;
+  roleIds:     string[];
+}
+
+const TICKET_TYPES: Record<string, TicketTypeConfig> = {
+  general: {
+    label:         "General Support",
+    channelPrefix: "general",
+    categoryId:    "1495355209361260714",
+    roleIds:       ["1492511067757350988"],
+  },
+  partnership: {
+    label:         "Partnership Support",
+    channelPrefix: "partnership",
+    categoryId:    "1495356073991999508",
+    roleIds:       ["1495355769787514901"],
+  },
+  internal_affairs: {
+    label:         "Internal Affairs Support",
+    channelPrefix: "internal-affairs",
+    categoryId:    "1495356212756090890",
+    roleIds:       ["1491756414539005983", "1495355667249369088", "1495355769787514901"],
+  },
+  high_rank: {
+    label:         "High Rank Support",
+    channelPrefix: "high-rank",
+    categoryId:    "1495356317181808681",
+    roleIds:       ["1495355769787514901", "1495355667249369088"],
+  },
+};
+
+let ticketCounter = 1;
+
+async function handleSendAssistance(interaction: ChatInputCommandInteraction) {
+  if (!memberHasRole(interaction.member, ASSISTANCE_ALLOWED_ROLE_ID)) {
+    await interaction.reply({ content: "You do not have permission to use this command.", flags: 64 });
+    return;
+  }
+  const channelId = interaction.options.getString("channel_id", true);
+  await interaction.deferReply({ flags: 64 });
+
+  try {
+    const channel = await interaction.client.channels.fetch(channelId);
+    if (!channel?.isTextBased()) { await interaction.editReply({ content: "Channel not found or not a text channel." }); return; }
+
+    const embed = new EmbedBuilder()
+      .setColor(DARK)
+      .setImage(ASSISTANCE_BIG_BANNER)
+      .setDescription(
+        "Our assistance dashboard is here to easily contact our support team through various ticket options. Pick the one that you think best supports your issue(s) and we'll be there to assist as soon as possible. Avoid pinging staff inside of your tickets as they are already notified when you open the ticket.\n\n**Average Response Time:** 27-45 minutes."
+      )
+      .setThumbnail(ASSISTANCE_SMALL_BANNER);
+
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId("ticket_type_select")
+      .setPlaceholder("Select a ticket type...")
+      .addOptions(
+        new StringSelectMenuOptionBuilder().setLabel("General Support").setDescription("Open a General Support ticket...").setValue("general"),
+        new StringSelectMenuOptionBuilder().setLabel("Partnership Support").setDescription("Open a Partnership Support ticket...").setValue("partnership"),
+        new StringSelectMenuOptionBuilder().setLabel("Internal Affairs Support").setDescription("Open an Internal Affairs Support ticket...").setValue("internal_affairs"),
+        new StringSelectMenuOptionBuilder().setLabel("High Rank Support").setDescription("Open a High Rank Support ticket...").setValue("high_rank"),
+      );
+
+    const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
+    await (channel as any).send({ embeds: [embed], components: [row] });
+    await interaction.editReply({ content: `Assistance embed sent to <#${channelId}>.` });
+  } catch (err) { logger.error({ err }, "Failed to send assistance embed"); await interaction.editReply({ content: "Failed to send embed." }); }
+}
+
+async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) {
+  const typeKey = interaction.values[0];
+  const config  = TICKET_TYPES[typeKey];
+  if (!config) { await interaction.reply({ content: "Unknown ticket type.", flags: 64 }); return; }
+
+  await interaction.deferReply({ flags: 64 });
+
+  const guild = interaction.guild;
+  if (!guild) { await interaction.editReply({ content: "This can only be used in a server." }); return; }
+
+  const user       = interaction.user;
+  const safeName   = user.username.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 16) || "user";
+  const ticketNum  = ticketCounter++;
+  const channelName = `${config.channelPrefix}-${safeName}-${ticketNum}`;
+
+  const permissionOverwrites: any[] = [
+    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+    { id: user.id,                 allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+  ];
+  for (const roleId of config.roleIds) {
+    permissionOverwrites.push({ id: roleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] });
+  }
+
+  let ticketChannel: any;
+  try {
+    ticketChannel = await guild.channels.create({
+      name:     channelName,
+      type:     ChannelType.GuildText,
+      parent:   config.categoryId,
+      permissionOverwrites,
+    });
+  } catch (err) {
+    logger.error({ err }, "Failed to create ticket channel");
+    await interaction.editReply({ content: "Failed to create ticket channel. Please check bot permissions." });
+    return;
+  }
+
+  const accountCreatedTs = Math.floor(user.createdTimestamp / 1000);
+
+  const pingContent = `${user} ${config.roleIds.map((id) => `<@&${id}>`).join(" ")}`;
+
+  const ticketEmbed = new EmbedBuilder()
+    .setColor(DARK)
+    .setImage(ASSISTANCE_BIG_BANNER)
+    .setDescription(
+      `> Thank you for contacting our support team, they have been notified so we ask that you do not ping them again unless there is no response for multiple hours. Failure to follow this will result in you being moderated and your ticket being closed.\n\n` +
+      `> **Ticket Type:** ${config.label}\n\n` +
+      `> **Discord User:** ${user}\n` +
+      `> **Account Age:** <t:${accountCreatedTs}:D>\n\n` +
+      `> **Ping:** ${user} ${config.roleIds.map((id) => `<@&${id}>`).join(" ")}`
+    );
+
+  const closeBtn = new ButtonBuilder()
+    .setCustomId(`ticket_close_${ticketChannel.id}`)
+    .setLabel("Close Ticket")
+    .setStyle(ButtonStyle.Danger)
+    .setEmoji("🔒");
+
+  const openBtn = new ButtonBuilder()
+    .setCustomId(`ticket_open_${ticketChannel.id}`)
+    .setLabel("Open Ticket")
+    .setStyle(ButtonStyle.Success)
+    .setEmoji("🔓");
+
+  const btnRow = new ActionRowBuilder<ButtonBuilder>().addComponents(openBtn, closeBtn);
+
+  await ticketChannel.send({ content: pingContent, embeds: [ticketEmbed], components: [btnRow] });
+  await interaction.editReply({ content: `Your ticket has been created: <#${ticketChannel.id}>` });
+}
+
+async function handleTicketClose(interaction: ButtonInteraction) {
+  const channelId = interaction.customId.replace("ticket_close_", "");
+  const guild     = interaction.guild;
+  if (!guild) { await interaction.reply({ content: "Not in a guild.", flags: 64 }); return; }
+
+  await interaction.reply({ content: "Closing ticket...", flags: 64 });
+  try {
+    const ch = await interaction.client.channels.fetch(channelId);
+    if (ch) await (ch as any).delete("Ticket closed");
+  } catch (err) { logger.warn({ err }, "Could not delete ticket channel"); }
+}
+
+async function handleTicketOpen(interaction: ButtonInteraction) {
+  await interaction.reply({ content: "This ticket is already open.", flags: 64 });
+}
 
 async function handleSendApplication(interaction: ChatInputCommandInteraction) {
   if (!memberHasRole(interaction.member, SEND_APP_ALLOWED_ROLE_ID)) {
@@ -1111,6 +1284,7 @@ export async function startBot() {
         else if (interaction.commandName === "nickname") await handleNickname(interaction);
         else if (interaction.commandName === "host" && sub === "training") await handleHostTraining(interaction);
         else if (interaction.commandName === "send" && sub === "application") await handleSendApplication(interaction);
+        else if (interaction.commandName === "send" && sub === "assistance")  await handleSendAssistance(interaction);
       }
 
       // ── Buttons ───────────────────────────────────────────────────────────
@@ -1127,7 +1301,14 @@ export async function startBot() {
         else if (cid.startsWith("app_deny_")   && !cid.endsWith("_done"))      await handleAppDeny(interaction, cid.replace("app_deny_", ""));
         else if (cid.startsWith("infr_proof_"))                                 await handleInfractionProof(interaction);
         else if (cid.startsWith("infr_appeal_"))                                await handleInfractionAppeal(interaction);
+        else if (cid.startsWith("ticket_close_"))                               await handleTicketClose(interaction);
+        else if (cid.startsWith("ticket_open_"))                                await handleTicketOpen(interaction);
         else if (cid.startsWith("training_"))                                   await handleTrainingButton(interaction);
+      }
+
+      // ── Select menus ──────────────────────────────────────────────────────
+      else if (interaction.isStringSelectMenu()) {
+        if (interaction.customId === "ticket_type_select") await handleTicketTypeSelect(interaction);
       }
 
       // ── Modal submits ─────────────────────────────────────────────────────
